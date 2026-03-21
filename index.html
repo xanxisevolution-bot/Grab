@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRAB BRANCH UPSTOCK</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #f0f0f0;
+    --panel:       #ffffff;
+    --border:      #555555;
+    --border2:     #888888;
+    --accent:      #333333;
+    --accent2:     #666666;
+    --accent3:     #444444;
+    --text:        #222222;
+    --text-dim:    #888888;
+    --danger:      #cc2244;
+    --info:        #2266cc;
+    --shadow:      #bbbbbb;
+    --grid-color:  rgba(0,0,0,0.06);
+    --thead-bg:    #f5f5f5;
+    --thead-border:#dddddd;
+    --tr-even:     #fafafa;
+    --tr-hover:    #f0f0fa;
+    --input-bg:    #f8f8f8;
+    --input-border:#cccccc;
+    --card-inset:  rgba(0,0,0,0.02);
+    --font:        'Press Start 2P', monospace;
+    --font-th:     'Sarabun', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 32px 32px;
+    font-family: var(--font);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.025) 2px, rgba(0,0,0,0.025) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── MODAL ── */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.hidden { display: none; }
+
+  .modal-box {
+    background: var(--panel);
+    border: 4px solid var(--border);
+    box-shadow: 8px 8px 0 var(--shadow);
+    padding: 28px 24px;
+    max-width: 380px; width: 100%;
+    text-align: center;
+    animation: modal-in 0.12s steps(3);
+  }
+  @keyframes modal-in { from{transform:scale(0.85);opacity:0} to{transform:scale(1);opacity:1} }
+
+  .modal-title { font-size: 10px; color: var(--accent); letter-spacing: 2px; margin-bottom: 8px; line-height: 2; }
+  .modal-sub   { font-size: 7px;  color: var(--text-dim); margin-bottom: 22px; letter-spacing: 1px; line-height: 2.2; }
+
+  .modal-input-wrap { margin-bottom: 14px; }
+  .modal-input-wrap label { display:block; font-size:6px; color:var(--text-dim); margin-bottom:8px; letter-spacing:2px; text-align:left; }
+  .modal-input {
+    font-family: var(--font); font-size: 12px;
+    background: var(--input-bg); color: var(--accent);
+    border: 3px solid var(--input-border);
+    padding: 12px; width: 100%;
+    outline: none; letter-spacing: 6px; text-align: center;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .modal-input:focus { border-color: var(--border); box-shadow: 0 0 8px var(--shadow); }
+
+  .modal-err {
+    font-size: 7px; color: var(--danger);
+    margin-top: 8px; min-height: 16px; letter-spacing: 1px;
+  }
+  .modal-err.shake { animation: shake 0.3s steps(4); }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+
+  .modal-btn-row { display:flex; gap:12px; justify-content:center; margin-top:20px; }
+
+  /* ── Supabase Config Modal ── */
+  .config-input {
+    font-family: var(--font-th); font-size: 13px;
+    background: var(--input-bg); color: var(--accent);
+    border: 2px solid var(--input-border);
+    padding: 10px; width: 100%;
+    outline: none; margin-bottom: 10px;
+    transition: border-color 0.2s;
+  }
+  .config-input:focus { border-color: var(--border); }
+
+  /* ── DB status ── */
+  .fb-status-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; margin-bottom: 16px;
+    background: var(--panel); border: 2px solid var(--input-border);
+    box-shadow: 3px 3px 0 var(--shadow);
+    flex-wrap: wrap;
+  }
+  .fb-dot {
+    width:10px; height:10px; flex-shrink:0;
+    border: 2px solid var(--text-dim);
+    animation: dot-blink 1.2s step-end infinite;
+  }
+  .fb-dot.ok  { border-color:#44aa66; background:#44aa66; box-shadow:0 0 4px #88cc99; }
+  .fb-dot.err { border-color:#cc2244; background:#cc2244; animation:none; }
+  @keyframes dot-blink { 0%,100%{opacity:1} 50%{opacity:0.15} }
+  .fb-label    { font-family:var(--font-th); font-size:11px; color:var(--text-dim); }
+  .fb-label.ok  { color:#44aa66; }
+  .fb-label.err { color:#cc2244; }
+  .fb-ts { font-family:var(--font-th); font-size:10px; color:var(--text-dim); margin-left:auto; }
+
+  /* ── Lock bar ── */
+  .lock-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; margin-bottom: 18px;
+    border: 2px solid var(--input-border); background: var(--panel);
+    box-shadow: 3px 3px 0 var(--shadow);
+    flex-wrap: wrap;
+  }
+  .lock-icon  { font-size: 14px; }
+  .lock-label { font-family:var(--font-th); font-size:12px; color: var(--text-dim); flex: 1; }
+  .lock-label.open { color: var(--accent); }
+
+  /* ── Header ── */
+  .header { text-align:center; margin-bottom:22px; }
+  .header h1 {
+    font-size: clamp(12px,3vw,20px);
+    color: var(--accent);
+    text-shadow: 3px 3px 0 #bbbbbb;
+    letter-spacing: 4px; line-height: 1.8;
+  }
+  .header .subtitle { font-size:7px; color:var(--text-dim); margin-top:10px; letter-spacing:2px; }
+  .header .pixel-bar {
+    width:100%; height:4px; margin:10px 0;
+    background: repeating-linear-gradient(90deg, var(--border) 0 8px, transparent 8px 16px);
+  }
+
+  .section-title {
+    font-size:10px; color:var(--accent);
+    text-shadow:1px 1px 0 #cccccc;
+    margin-bottom:14px; letter-spacing:2px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-title::before { content:'▶'; color:var(--border2); }
+
+  .card {
+    background: var(--panel);
+    border: 3px solid var(--border);
+    box-shadow: 5px 5px 0 var(--shadow);
+    padding: 18px; margin-bottom: 20px; position: relative;
+    transition: opacity 0.2s;
+  }
+  .card::before { content:''; position:absolute; top:-3px; left:6px; right:6px; height:3px; background:var(--border2); opacity:0.35; }
+  .card.orange { border-color:var(--border2); box-shadow:5px 5px 0 #aaaaaa; }
+  .card.orange::before { background:var(--border2); }
+  .card.locked { opacity:0.55; pointer-events:none; border-style:dashed; }
+
+  .table-wrap { overflow-x:auto; border:2px solid var(--input-border); }
+  table { width:100%; border-collapse:collapse; font-size:7px; min-width:600px; }
+  thead tr { background:var(--thead-bg); }
+  th { padding:10px 8px; color:var(--accent); border:1px solid var(--thead-border); letter-spacing:1px; font-size:7px; white-space:nowrap; text-align:left; }
+  td { padding:8px 6px; border:1px solid var(--input-border); font-size:7px; }
+  tbody tr:hover { background:var(--tr-hover); }
+  tbody tr:nth-child(even) { background:var(--tr-even); }
+
+  input[type="text"], input[type="number"], input[type="password"], select {
+    font-family: var(--font); font-size: 10px;
+    background: var(--input-bg); color: var(--text);
+    border: 2px solid var(--input-border);
+    padding: 6px 8px; width: 100%; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  input:focus, select:focus { border-color: var(--border); box-shadow: 0 0 6px var(--shadow); }
+  input[readonly] { color: var(--text-dim); cursor: default; }
+
+  .btn {
+    font-family:var(--font); font-size:7px;
+    padding:10px 14px; border:3px solid; cursor:pointer;
+    letter-spacing:1px; text-transform:uppercase; white-space:nowrap; line-height:1;
+    transition:transform 0.05s, box-shadow 0.05s;
+  }
+  .btn:active { transform:translate(3px,3px); box-shadow:0 0 0 !important; }
+  .btn:disabled { opacity:0.3; cursor:not-allowed; pointer-events:none; }
+  .btn.hidden { display:none; }
+
+  .btn-green  { background:#eef8f2; color:#226633; border-color:#448844; box-shadow:4px 4px 0 #aaccaa; }
+  .btn-green:hover  { background:#ddf0e6; }
+  .btn-orange { background:#fff5ee; color:#884422; border-color:#cc6633; box-shadow:4px 4px 0 #ccaa88; }
+  .btn-orange:hover { background:#ffe8d6; }
+  .btn-yellow { background:#fffff0; color:#665500; border-color:#bbaa00; box-shadow:4px 4px 0 #cccc88; }
+  .btn-yellow:hover { background:#ffffd6; }
+  .btn-red    { background:#fff0f3; color:#cc2244; border-color:#dd4466; box-shadow:4px 4px 0 #ccaaaa; }
+  .btn-red:hover    { background:#ffe0e6; }
+  .btn-info   { background:#eef5ff; color:#2244aa; border-color:#4466cc; box-shadow:4px 4px 0 #aabbcc; }
+  .btn-info:hover   { background:#ddeeff; }
+  .btn-dim    { background:#f5f5f5; color:#666666; border-color:#aaaaaa; box-shadow:3px 3px 0 #cccccc; }
+  .btn-dim:hover    { background:#ebebeb; }
+
+  .badge { display:inline-block; font-family:var(--font); font-size:6px; padding:4px 8px; border:2px solid; letter-spacing:1px; }
+  .badge-ok   { color:#226633; border-color:#448844; background:#eef8f2; }
+  .badge-warn { color:#664400; border-color:#cc8800; background:#fff8dd; }
+  .badge-err  { color:#cc2244; border-color:#dd4466; background:#fff0f3; }
+  .badge-info { color:#2244aa; border-color:#4466cc; background:#eef5ff; }
+  .badge-danger { color:#cc2244; border-color:#dd4466; background:#fff0f3; }
+
+  .controls-grid { display:grid; grid-template-columns:1fr 1fr auto auto auto; gap:10px; align-items:end; margin-bottom:16px; }
+  .form-group label { display:block; font-family:var(--font-th); font-size:11px; color:var(--text-dim); margin-bottom:6px; }
+
+  .log-panel {
+    background:#f7f7f7; border:2px solid var(--input-border);
+    padding:12px; height:220px; overflow-y:auto;
+    font-family:var(--font-th); font-size:10px; line-height:2;
+    color: var(--text);
+  }
+  .log-panel::-webkit-scrollbar { width:8px; }
+  .log-panel::-webkit-scrollbar-track { background:#f0f0f0; }
+  .log-panel::-webkit-scrollbar-thumb { background:#aaaaaa; border:2px solid #f0f0f0; }
+  .log-line { margin-bottom:2px; white-space:pre-wrap; word-break:break-all; }
+  .log-ok   { color:#226633; }
+  .log-warn { color:#aa6600; }
+  .log-err  { color:#cc2244; }
+  .log-info { color:#2266cc; }
+  .log-dim  { color:#aaaaaa; }
+
+  .progress-wrap { width:100%; height:14px; background:#eeeeee; border:2px solid var(--input-border); margin:10px 0; overflow:hidden; }
+  .progress-bar { height:100%; background:repeating-linear-gradient(90deg,#555555 0 8px,#cccccc 8px 10px); width:0%; transition:width 0.4s steps(10); }
+
+  .cursor-blink { display:inline-block; width:8px; height:12px; background:var(--accent); animation:blink 0.8s step-end infinite; vertical-align:middle; margin-left:4px; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  .btn-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .pixel-divider { height:3px; background:repeating-linear-gradient(90deg,var(--border2) 0 6px,transparent 6px 12px); margin:16px 0; opacity:0.4; }
+  .footer { text-align:center; font-size:8px; color:var(--text-dim); margin-top:24px; letter-spacing:2px; line-height:2.5; }
+  .th-text { font-family:var(--font-th); font-size:12px; }
+
+  @media (max-width:768px) {
+    body { padding:10px; }
+    .controls-grid { grid-template-columns:1fr 1fr; }
+    .controls-grid .btn-row-ctrl { grid-column:1/-1; display:flex; gap:8px; flex-wrap:wrap; }
+    .header h1 { font-size:11px; }
+    table { font-size:6px; }
+    th,td { padding:6px 4px; }
+    .btn { font-size:6px; padding:8px 10px; }
+  }
+  @media (max-width:480px) {
+    .header h1 { font-size:9px; letter-spacing:2px; }
+    .section-title { font-size:7px; }
+    input[type="text"],input[type="number"],select { font-size:9px; padding:5px 6px; }
+    .log-panel { height:160px; font-size:6px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ PASSWORD MODAL ══ -->
+<div class="modal-overlay hidden" id="modal-pw">
+  <div class="modal-box">
+    <div class="modal-title">🔐 UNLOCK REQUIRED</div>
+    <div class="modal-sub" style="font-family:var(--font-th);font-size:13px">ใส่รหัสผ่านเพื่อแก้ไข<br>รายการสินค้าปัจจุบัน</div>
+    <div class="modal-input-wrap">
+      <label style="font-family:var(--font-th);font-size:11px">PASSWORD</label>
+      <input class="modal-input" type="password" id="pw-input" placeholder="••••••••"
+             onkeydown="if(event.key==='Enter')window.checkPassword()">
+    </div>
+    <div class="modal-err" id="pw-err" style="font-family:var(--font-th);font-size:11px"></div>
+    <div class="modal-btn-row">
+      <button class="btn btn-green" onclick="window.checkPassword()">▶ CONFIRM</button>
+      <button class="btn btn-dim"   onclick="window.closeModal('modal-pw')">✕ CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SUPABASE CONFIG MODAL ══ -->
+<div class="modal-overlay hidden" id="modal-config">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">⚙ SUPABASE CONFIG</div>
+    <div style="font-family:var(--font-th);font-size:13px;color:var(--text-dim);margin-bottom:20px;line-height:2">
+      ใส่ข้อมูล Supabase Project ของคุณ<br>
+      <span style="font-size:11px">Settings → API ใน Supabase Dashboard</span>
+    </div>
+    <div style="text-align:left;margin-bottom:10px">
+      <label style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">PROJECT URL</label>
+      <input class="config-input" type="text" id="cfg-url" placeholder="https://xxxxxxxxxxxx.supabase.co">
+    </div>
+    <div style="text-align:left;margin-bottom:10px">
+      <label style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">ANON PUBLIC KEY</label>
+      <input class="config-input" type="text" id="cfg-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+    </div>
+    <div id="cfg-err" style="font-family:var(--font-th);font-size:11px;color:var(--danger);min-height:18px;margin-bottom:10px"></div>
+    <div class="modal-btn-row">
+      <button class="btn btn-green" onclick="window.saveConfig()">💾 SAVE & CONNECT</button>
+      <button class="btn btn-dim"   onclick="window.closeModal('modal-config')">✕ CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ HEADER ══ -->
+<div class="header">
+  <div class="pixel-bar"></div>
+  <h1>◆ GRAB UPSTOCK ◆</h1>
+  <div class="subtitle">· BaaS : SUPABASE & POSTGRESQL ·</div>
+  <div class="pixel-bar"></div>
+</div>
+
+<!-- Supabase status bar -->
+<div class="fb-status-bar">
+  <span class="fb-dot" id="fb-dot"></span>
+  <span class="fb-label" id="fb-label">CONNECTING TO SUPABASE...</span>
+  <span class="fb-ts" id="fb-ts"></span>
+  <button class="btn btn-dim" onclick="window.openConfig()" style="margin-left:auto;font-size:6px;padding:6px 10px">⚙ CONFIG</button>
+</div>
+
+<!-- Lock bar -->
+<div class="lock-bar">
+  <span class="lock-icon" id="lock-icon">🔒</span>
+  <span class="lock-label" id="lock-label">READ-ONLY · กด UNLOCK เพื่อแก้ไข</span>
+  <button class="btn btn-yellow" id="btn-unlock" onclick="window.openUnlock()">🔑 UNLOCK</button>
+  <button class="btn btn-dim hidden" id="btn-lock" onclick="window.lockNow()">🔒 LOCK</button>
+</div>
+
+<!-- Guide -->
+<div class="card">
+  <div class="section-title">HOW TO USE</div>
+  <div style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);line-height:2.6">
+    <div style="color:var(--text);font-weight:700">• สร้างไฟล์ R01.102 ของแต่ละสาขา • เลือกสินค้าทั้งหมด • ส่งออกเป็น .CSV (ตั้งชื่อเป็น xxx.csv เช่น src.csv , kkl.csv ,..) </div>
+    <div style="color:var(--text);font-weight:700">• อัปโหลดไฟล์ xxx.csv ที่หัวข้อ UPLOAD REPORT R01.102 (เลือกจนครบสาขา)</div>
+    <div style="color:var(--text);font-weight:700">• อัปโหลดไฟล์เสร็จแล้วไปที่หัวข้อ PROCESS ENGINE กดปุ่ม Check เพื่อตรวจสอบไฟล์ตรงกับในระบบหรือไม่ • ตรวจสอบแล้วกด RUN ALL </div>
+    <div style="color:var(--text);font-weight:700">• SUBTRACT PER BRANCH สำหรับลดจำนวนสินค้าในแต่ละสาขา ป้องกันหน้าร้านขายหมดก่อน</div>
+  </div>
+  <div style="margin-top:12px;text-align:left">
+    <button onclick="window.open('manual.html','_blank')" style="font-family:var(--font);font-size:6px;padding:6px 10px;border:2px solid #333333;background:#ffffff;color:#333333;cursor:pointer;letter-spacing:1px">USER MANUAL</button>
+  </div>
+</div>
+
+<!-- Source Files card -->
+<div class="card">
+  <div class="section-title">UPLOAD REPORT R01.102</div>
+  <div class="th-text" style="color:var(--text);font-weight:700;margin-bottom:10px;line-height:2.2">
+    • โหลดไฟล์ชื่อ xxx.csv ที่ส่งออกจาก REPORT R01.102 อัปเดทล่าสุด (รองรับไฟล์ .csv เท่านั้น)<br>
+  </div>
+  <div class="btn-row" style="margin-bottom:15px">
+    <button class="btn btn-green" onclick="window.triggerSrcLoad()">• UPLOAD</button>
+    <button class="btn btn-red"   onclick="window.clearSourceFiles()">✕ CLEAR</button>
+    <span id="src-status" class="badge badge-danger">NOT READY</span>
+    <input type="file" id="src-file-input" accept=".csv" multiple style="display:none"
+           onchange="window.loadSourceFiles(this.files)">
+  </div>
+  <div id="src-file-list" style="display:flex;flex-wrap:wrap;gap:4px;min-height:24px">
+    <span style="font-family:var(--font-th);font-size:14px;color:var(--text-dim)">ยังไม่ได้โหลดไฟล์...</span>
+  </div>
+</div>
+
+<!-- File Manager card -->
+<div class="card">
+  <div class="section-title" onclick="window.toggleGrabManager()" style="cursor:pointer;user-select:none">
+    <span style="flex:1">GRAB CSV MANAGER (SYSTEM ADMIN ONLY)</span>
+    <span id="grab-manager-arrow" style="font-size:10px;margin-left:auto">▼</span>
+  </div>
+  <div id="grab-manager-body" style="display:none">
+    <div class="th-text" style="color:var(--text);font-weight:700;margin-bottom:14px;line-height:2.2">
+      • ไฟล์ CSV จาก GRAB • สำหรับแก้ไขรายการสินค้าเท่านั้น <br> • อัปเดทเฉพาะเมื่อมีการยื่นแก้ไขรายการสินค้าจาก GRAB <br>
+      • ชื่อไฟล์ GRAB_XXX (ตัวพิมพ์ใหญ่ทั้งหมด)
+    </div>
+    <div class="btn-row" style="margin-bottom:12px">
+      <button class="btn btn-info" id="btn-upload" onclick="window.triggerUpload()" disabled>📤 UPLOAD CSV</button>
+      <span id="upload-status" class="badge badge-info">READY</span>
+      <input type="file" id="csv-file-input" accept=".csv" multiple style="display:none"
+             onchange="window.uploadCSVFiles(this.files)">
+    </div>
+    <div id="grab-file-list" style="margin-top:10px"></div>
+    <div class="th-text" style="color:var(--danger);font-size:11px;line-height:2.4;margin-top:10px">
+      ⚠ ไฟล์นี้ถูกเก็บบน Supabase Storage แก้ไขได้เฉพาะ IT<br>
+      <code style="font-family:var(--font);font-size:7px;color:#664400;letter-spacing:1px">storage policy: authenticated only</code>
+    </div>
+  </div>
+</div>
+
+<!-- Pending Price Update card -->
+<div class="card">
+  <div class="section-title">
+    <span style="flex:1">PENDING SKU UPDATE</span>
+    <span id="pending-badge" class="badge badge-info" style="margin-left:auto">0 SKUs</span>
+  </div>
+  <div class="th-text" style="color:var(--text);font-weight:700;margin-bottom:14px;line-height:2.2">
+    • เมื่อมีการแก้ไขราคา/ชื่อสินค้า/รูปภาพสินค้า ต้องยื่น FORM ให้เจ้าที่ GRAB MART ตรวจสอบ
+ ใช้เวลา 3-5 วัน &nbsp;&nbsp;&nbsp;&nbsp; ยื่นฟอร์มที่นี่ 🠊 <button onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLSdHnuK9wOo3ZOYYICKW-FpGqBq9SA0d75vrzrAsWYhf7MI3hA/viewform?pli=1','_blank')" style="font-family:var(--font);font-size:7px;padding:2px 8px;border:2px solid #333333;background:#ffffff;color:#333333;cursor:pointer;letter-spacing:1px">GRAB FORM</button> <BR> • ระบุ SKU ที่รอการแก้ไข (SKU นี้จะไม่ถูกนำขึ้น GRABMART) <BR> • SKU จะบันทึกค้างไว้ในระบบตลอดจนกว่าจะลบออก
+  </div>
+  <div class="btn-row" style="margin-bottom:14px;gap:8px">
+    <input type="text" id="pending-sku-input" placeholder="กรอก SKU..." onkeydown="if(event.key==='Enter')window.addPendingSku()" style="font-family:var(--font-th);font-size:13px;padding:8px 10px;border:2px solid var(--input-border);background:var(--input-bg);color:var(--text);flex:1;min-width:0">
+    <button class="btn btn-green" onclick="window.addPendingSku()">+ ADD</button>
+  </div>
+  <div id="pending-list" style="min-height:32px"></div>
+</div>
+
+<!-- Process card -->
+<div class="card orange">
+  <div class="section-title">PROCESS ENGINE</div>
+  <div class="btn-row" style="margin-bottom:12px">
+    <button class="btn btn-green" onclick="window.runAll()">▶▶ RUN</button>
+    <button class="btn btn-info"  onclick="window.validateAll()">✔ CHECK</button>
+    <button class="btn btn-red"   onclick="window.clearLog()">✕ CLEAR</button>
+    <button class="btn btn-orange hidden" id="btn-download-all" onclick="window.downloadAll()">⬇ DOWNLOAD ALL</button>
+  </div>
+  <div class="pixel-divider"></div>
+  <div class="section-title" style="font-size:8px;margin-bottom:10px">SUBTRACT PER BRANCH (Default)</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
+    <div class="form-group"><label>SRC</label><input type="number" id="sub-src" value="5" min="0"></div>
+    <div class="form-group"><label>SSS</label><input type="number" id="sub-sss" value="2" min="0"></div>
+    <div class="form-group"><label>KKL</label><input type="number" id="sub-kkl" value="2" min="0"></div>
+    <div class="form-group"><label>WRD</label><input type="number" id="sub-wrd" value="2" min="0"></div>
+    <div class="form-group"><label>ONN</label><input type="number" id="sub-onn" value="2" min="0"></div>
+  </div>
+  <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+  <div style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);margin-bottom:10px">
+    PROGRESS: <span id="progress-text">READY</span><span class="cursor-blink"></span>
+  </div>
+  <div class="pixel-divider"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+    <div class="section-title" style="margin-bottom:0">SYSTEM LOG</div>
+    <span id="log-status" class="badge badge-info">IDLE</span>
+  </div>
+  <div class="log-panel" id="log-panel">
+    <div class="log-line log-dim">══════════════════════════════════════</div>
+    <div class="log-line log-info">  NOW WAITING...</div>
+    <div class="log-line log-dim">══════════════════════════════════════</div>
+  </div>
+</div>
+
+<div class="footer">
+  <div>◆ ◆ ◆ DATABASE : SUPABASE · POSTGRESQL ◆ ◆ ◆</div>
+  <div>DESIGN & CODING BY CLAUDE</div>
+</div>
+
+<!-- ══ SUPABASE CDN ══ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  function _sbGetConfig() {
+    try { return JSON.parse(localStorage.getItem('sb_config') || '{}'); }
+    catch(e) { return {}; }
+  }
+
+  async function _sbInitSupabase() {
+    var cfg = _sbGetConfig();
+    var url = cfg.url, key = cfg.key;
+    if (!url || !key) {
+      window._sbReady = false;
+      if (window._onSbReady) window._onSbReady(false, 'ยังไม่ได้ตั้งค่า — กด ⚙ CONFIG เพื่อใส่ Supabase URL & Key');
+      return;
+    }
+    try {
+      var sb = supabase.createClient(url, key);
+
+      // ทดสอบ connection
+      var test = await sb.from('grab_files').select('id').limit(1);
+      if (test.error && test.error.code !== 'PGRST116') throw new Error(test.error.message);
+
+      window._sb = sb;
+      window._sbReady = true;
+
+      window._sbSaveCSV = async function(filename, text) {
+        var name = filename.toUpperCase().replace(/\//g,'_');
+        var res = await sb.from('grab_files')
+          .upsert({ name: name, content: text, updated_at: new Date().toISOString() }, { onConflict: 'name' });
+        if (res.error) throw new Error(res.error.message);
+        return name;
+      };
+
+      window._sbGetCSVText = async function(filename) {
+        var name = filename.toUpperCase().replace(/\//g,'_');
+        var res = await sb.from('grab_files').select('content').eq('name', name).single();
+        if (res.error) throw new Error('ไม่พบไฟล์ ' + name + ' ใน Supabase');
+        return res.data.content;
+      };
+
+      window._sbListCSVFiles = async function() {
+        var res = await sb.from('grab_files').select('name, updated_at').order('name');
+        if (res.error) throw new Error(res.error.message);
+        return (res.data || []).map(function(r) {
+          return { name: r.name, updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : null };
+        });
+      };
+
+      window._sbSavePendingSkus = async function(skus) {
+        var res = await sb.from('app_settings')
+          .upsert({ key: 'pending_skus', value: JSON.stringify(skus) }, { onConflict: 'key' });
+        if (res.error) throw new Error(res.error.message);
+      };
+
+      window._sbLoadPendingSkus = async function() {
+        var res = await sb.from('app_settings').select('value').eq('key', 'pending_skus').single();
+        if (res.error) return [];
+        try { return JSON.parse(res.data.value) || []; } catch(e) { return []; }
+      };
+
+      if (window._onSbReady) window._onSbReady(true);
+
+    } catch(e) {
+      window._sbReady = false;
+      window._sbSaveCSV = null; window._sbGetCSVText = null;
+      window._sbListCSVFiles = null; window._sbSavePendingSkus = null;
+      window._sbLoadPendingSkus = null;
+      if (window._onSbReady) window._onSbReady(false, e.message);
+    }
+  }
+
+  window._sbInit = _sbInitSupabase;
+
+  // auto init หลัง DOM โหลดเสร็จ
+  document.addEventListener('DOMContentLoaded', function() {
+    _sbInitSupabase();
+  });
+</script>
+
+<!-- ══ MAIN SCRIPT ══ -->
+<script>
+// ════════════════════════════════════
+//  PASSWORD — เปลี่ยนได้ที่นี่
+// ════════════════════════════════════
+const PASS = '1234';
+
+let isUnlocked       = false;
+let grabFilesList    = [];
+let sourceFilesCache = {};
+let processedOutputs = {};
+let pendingSkus      = [];
+
+// ════════════════════════════════════
+//  SUPABASE INIT CALLBACK
+// ════════════════════════════════════
+window._onSbReady = (ok, msg) => {
+  setDbStatus(ok, msg);
+  if (ok) {
+    refreshGrabList();
+    loadPendingSkus();
+  }
+};
+
+async function refreshGrabList() {
+  if (!window._sbListCSVFiles) return;
+  try {
+    grabFilesList = await window._sbListCSVFiles();
+    log('ok', '[DB] GRAB FILES: ' + grabFilesList.length + ' FILES READY');
+    setDbStatus(true);
+    renderGrabFileList();
+  } catch(e) {
+    log('err', '[DB] LIST ERROR: ' + e.message);
+    setDbStatus(false, e.message);
+  }
+}
+
+function renderGrabFileList() {
+  const el = document.getElementById('grab-file-list');
+  if (!el) return;
+  if (!grabFilesList.length) {
+    el.innerHTML = '<span style="font-family:var(--font-th);font-size:13px;color:var(--text-dim)">ยังไม่มีไฟล์บน Supabase</span>';
+    return;
+  }
+  const rows = grabFilesList.map(f => {
+    const ts = f.updatedAt
+      ? new Date(f.updatedAt).toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'2-digit'})
+        + ' ' + new Date(f.updatedAt).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+      : '—';
+    return `<tr>
+      <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px">${esc(f.name)}</td>
+      <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;color:var(--text-dim)">${ts}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse;margin-top:4px">
+    <thead>
+      <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
+        <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">FILE NAME</th>
+        <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">UPLOADED AT</th>
+      </tr>
+    </thead>
+    <tbody style="border:1px solid #ddd">${rows}</tbody>
+  </table>`;
+}
+
+function setDbStatus(ok, msg) {
+  const dot = document.getElementById('fb-dot');
+  const lbl = document.getElementById('fb-label');
+  const ts  = document.getElementById('fb-ts');
+  if (!dot) return;
+  dot.className   = ok ? 'fb-dot ok' : 'fb-dot err';
+  lbl.className   = ok ? 'fb-label ok' : 'fb-label err';
+  const cfg = JSON.parse(localStorage.getItem('sb_config') || '{}');
+  const projId = cfg.url ? cfg.url.replace('https://','').split('.')[0] : 'not configured';
+  lbl.textContent = ok ? '● SUPABASE CONNECTED · ' + projId : '✕ ' + (msg || 'NOT CONNECTED — กด ⚙ CONFIG');
+  ts.textContent  = new Date().toTimeString().slice(0,8);
+}
+
+// ════════════════════════════════════
+//  CONFIG MODAL
+// ════════════════════════════════════
+function openConfig() {
+  const cfg = JSON.parse(localStorage.getItem('sb_config') || '{}');
+  document.getElementById('cfg-url').value = cfg.url || '';
+  document.getElementById('cfg-key').value = cfg.key || '';
+  document.getElementById('cfg-err').textContent = '';
+  document.getElementById('modal-config').classList.remove('hidden');
+}
+
+async function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  const err = document.getElementById('cfg-err');
+  if (!url || !url.startsWith('https://')) { err.textContent = '✕ URL ต้องขึ้นต้นด้วย https://'; return; }
+  if (!key || key.length < 30) { err.textContent = '✕ Anon Key ไม่ถูกต้อง'; return; }
+  localStorage.setItem('sb_config', JSON.stringify({ url, key }));
+  closeModal('modal-config');
+  log('info', '[CFG] Supabase config saved · reconnecting...');
+  setDbStatus(false, 'reconnecting...');
+
+  await window._sbInit();
+}
+
+// ════════════════════════════════════
+//  CSV UTILITIES
+// ════════════════════════════════════
+function parseCSV(text) {
+  // ── Strip BOM + normalize line endings ──
+  const t = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // ── Single-pass parse + fix rogue unescaped " ──
+  // รองรับ: multi-line quoted cells, escaped "", rogue " ในชื่อสินค้า
+  const rows = [];
+  let row = [], cur = '', inQ = false;
+  let i = 0;
+  while (i < t.length) {
+    const ch = t[i];
+    if (inQ) {
+      if (ch === '"') {
+        const next = t[i + 1];
+        if (next === '"') {
+          // escaped "" → emit single "
+          cur += '"'; i += 2; continue;
+        } else if (next === ',' || next === '\n' || next === undefined || i + 1 >= t.length) {
+          // valid closing quote
+          inQ = false; i++; continue;
+        } else {
+          // rogue " inside quoted field (เช่น 3M Coban 1" x 5) — skip it
+          i++; continue;
+        }
+      } else {
+        // normal char inside quoted field (รวม \n)
+        cur += ch; i++; continue;
+      }
+    } else {
+      if (ch === '"') {
+        const prev = i > 0 ? t[i - 1] : null;
+        if (prev === null || prev === ',' || prev === '\n') {
+          // valid opening quote
+          inQ = true; i++; continue;
+        } else {
+          // rogue " outside quoted field — skip
+          i++; continue;
+        }
+      } else if (ch === ',') {
+        row.push(cur); cur = ''; i++; continue;
+      } else if (ch === '\n') {
+        row.push(cur); cur = '';
+        rows.push(row); row = [];
+        i++; continue;
+      } else {
+        cur += ch; i++; continue;
+      }
+    }
+  }
+  // last row
+  row.push(cur);
+  if (row.some(function(c) { return c !== ''; }) || rows.length === 0) rows.push(row);
+  return rows;
+}
+function csvToText(rows) {
+  return rows.map(row => row.map(cell => {
+    const s = String(cell == null ? '' : cell);
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+      return '"' + s.replace(/\r?\n/g, '\r\n').replace(/"/g, '""') + '"';
+    }
+    return s;
+  }).join(',')).join('\r\n');
+}
+
+function downloadFile(text, filename) {
+  const blob = new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+// ════════════════════════════════════
+//  LOCAL SOURCE FILES
+// ════════════════════════════════════
+function triggerSrcLoad() {
+  document.getElementById('src-file-input').click();
+}
+
+async // ════════════════════════════════════
+//  CLEAN SOURCE CSV — ทำความสะอาดไฟล์ ERP ก่อนใช้งาน
+// ════════════════════════════════════
+function cleanSourceCSV(rawText, filename) {
+  var text = rawText;
+
+  // 1. ลบ BOM
+  text = text.replace(/^\uFEFF/, '').replace(/^\uFFFE/, '');
+
+  // 2. normalize line endings
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // 3. ตรวจ delimiter — รองรับ TSV (tab-separated) จาก ERP บางตัว
+  var firstLine = text.split('\n')[0];
+  var tabCount   = (firstLine.match(/\t/g) || []).length;
+  var commaCount = (firstLine.match(/,/g)  || []).length;
+  var warnings = [];
+  if (tabCount > commaCount) {
+    text = text.split('\n').map(function(line) {
+      return line.split('\t').map(function(cell) {
+        var s = cell.trim();
+        return (s.indexOf(',') >= 0 || s.indexOf('"') >= 0)
+          ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',');
+    }).join('\n');
+    warnings.push('TSV\u2192CSV converted (' + tabCount + ' tabs/row)');
+  }
+
+  // 4. parse แล้วตรวจ column count
+  var rows = parseCSV(text);
+  if (rows.length < 2) {
+    throw new Error('ไฟล์ว่างหรือ parse ไม่ได้ — ตรวจสอบ format');
+  }
+  var expectedCols = rows[0].length;
+  var badRows = 0;
+  rows.forEach(function(r, i) { if (i > 0 && r.length !== expectedCols) badRows++; });
+
+  // 5. ตรวจว่ามี SKU (col E=4) และ QTY (col G=6) จริง
+  var hasData = false;
+  rows.forEach(function(r, i) {
+    if (i === 0) return;
+    var sku = (r[4] || '').trim();
+    var qty = (r[6] || '').trim();
+    if (sku && !isNaN(parseFloat(qty))) hasData = true;
+  });
+  if (!hasData) {
+    throw new Error('ไม่พบ SKU (col E) หรือ จำนวนสินค้า (col G) — ตรวจสอบว่า Export ถูก Report หรือไม่');
+  }
+
+  // 6. log สรุป
+  var skus = new Set();
+  rows.forEach(function(r, i) {
+    if (i > 0) { var k = (r[4] || '').trim(); if (k) skus.add(k); }
+  });
+  log('ok', '[CLEAN] ' + filename + ' · ' + (rows.length - 1) + ' rows · ' + skus.size + ' unique SKUs');
+  if (badRows)        log('warn', '[CLEAN] ' + badRows + ' rows มีจำนวน column ผิดปกติ');
+  if (warnings.length) log('warn', '[CLEAN] ' + warnings.join(', '));
+
+  return text;
+}
+async function loadSourceFiles(files) {
+  if (!files.length) return;
+  const badge = document.getElementById('src-status');
+  badge.className = 'badge badge-warn'; badge.textContent = 'LOADING...';
+  let ok = 0, fail = 0;
+  for (const file of files) {
+    try {
+      // อ่านไฟล์ — ลอง UTF-8 ก่อน ถ้าภาษาไทยเพี้ยนลอง TIS-620
+      let text;
+      const rawBuf = await file.arrayBuffer();
+      try {
+        text = new TextDecoder('utf-8').decode(rawBuf);
+        // ถ้า Thai char เป็น replacement char (ภาษาไทยเสีย) → ลอง tis-620
+        if (/�/.test(text)) {
+          text = new TextDecoder('windows-874').decode(rawBuf);
+          log('warn', '[SRC] ' + file.name.toUpperCase() + ' · ตรวจพบ TIS-620/Windows-874 encoding');
+        }
+      } catch(e) {
+        text = new TextDecoder('windows-874').decode(rawBuf);
+      }
+
+      // Clean
+      const cleaned = cleanSourceCSV(text, file.name.toUpperCase());
+      sourceFilesCache[file.name.toUpperCase()] = cleaned;
+      log('ok', '[SRC] ✔ ' + file.name.toUpperCase() + ' (' + (file.size/1024).toFixed(1) + ' KB)');
+      ok++;
+    } catch(e) {
+      log('err', '[SRC] ✕ ' + file.name.toUpperCase() + ' · ' + e.message);
+      fail++;
+    }
+  }
+  const now = new Date();
+  const ts  = now.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'2-digit'})
+              + ' ' + now.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  document.getElementById('src-file-input').value = '';
+  badge.className = fail ? 'badge badge-err' : 'badge badge-ok';
+  badge.textContent = ok + ' LOADED · ' + ts + (fail ? ' · ' + fail + ' FAIL' : '');
+  renderSrcList();
+  log(fail ? 'warn' : 'ok', '[SRC] DONE · ' + ok + ' FILES LOADED · ' + ts);
+}
+
+function clearSourceFiles() {
+  sourceFilesCache = {};
+  const badge = document.getElementById('src-status');
+  badge.className = 'badge badge-danger'; badge.textContent = 'NOT READY';
+  renderSrcList();
+  log('warn', '[SRC] CLEARED');
+}
+
+function renderSrcList() {
+  const list = document.getElementById('src-file-list');
+  if (!list) return;
+  const keys = Object.keys(sourceFilesCache);
+  if (!keys.length) {
+    list.innerHTML = '<span style="font-family:var(--font-th);font-size:14px;color:var(--text-dim)">ยังไม่ได้โหลดไฟล์</span>';
+    return;
+  }
+  list.innerHTML = keys.map(k =>
+    `<span class="badge badge-ok" style="margin:2px">${esc(k)}</span>`
+  ).join('');
+}
+
+function triggerUpload() {
+  document.getElementById('csv-file-input').click();
+}
+
+async function uploadCSVFiles(files) {
+  if (!files.length) return;
+  if (!window._sbSaveCSV) { log('err', '[DB] SUPABASE NOT READY'); return; }
+  const badge = document.getElementById('upload-status');
+  badge.className = 'badge badge-warn'; badge.textContent = 'UPLOADING...';
+  let ok = 0, fail = 0;
+  for (const file of files) {
+    try {
+      log('info', '[DB] UPLOADING: ' + file.name.toUpperCase());
+      const text = await file.text();
+      const name = await window._sbSaveCSV(file.name, text);
+      log('ok', '[DB] ✔ ' + name + ' (' + (file.size / 1024).toFixed(1) + ' KB)');
+      ok++;
+    } catch(e) {
+      log('err', '[DB] ✕ ' + file.name + ' · ' + e.message);
+      fail++;
+    }
+  }
+  const now = new Date();
+  const ts  = now.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'2-digit'})
+              + ' ' + now.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  badge.className = fail ? 'badge badge-err' : 'badge badge-ok';
+  badge.textContent = ok + ' UPLOADED · ' + ts + (fail ? ' · ' + fail + ' FAIL' : '');
+  document.getElementById('csv-file-input').value = '';
+  log(fail ? 'warn' : 'ok', '[DB] DONE · OK:' + ok + (fail ? ' FAIL:' + fail : '') + ' · ' + ts);
+  if (ok) refreshGrabList();
+}
+
+// ════════════════════════════════════
+//  LOCK / UNLOCK
+// ════════════════════════════════════
+function updateLockUI() {
+  const icon      = document.getElementById('lock-icon');
+  const label     = document.getElementById('lock-label');
+  const bU        = document.getElementById('btn-unlock');
+  const bL        = document.getElementById('btn-lock');
+  const btnUpload = document.getElementById('btn-upload');
+  if (isUnlocked) {
+    icon.textContent  = '🔓';
+    label.textContent = 'UNLOCKED · อัปโหลด GRAB FILE ได้';
+    label.className   = 'lock-label open';
+    bU.classList.add('hidden');
+    bL.classList.remove('hidden');
+    if (btnUpload) btnUpload.removeAttribute('disabled');
+  } else {
+    icon.textContent  = '🔒';
+    label.textContent = 'GRAB CSV MANAGER ถูกล็อคไว้ • สำหรับ SYSTEM ADMIN';
+    label.className   = 'lock-label';
+    bU.classList.remove('hidden');
+    bL.classList.add('hidden');
+    if (btnUpload) btnUpload.setAttribute('disabled', '');
+  }
+}
+
+function openUnlock() {
+  document.getElementById('pw-input').value = '';
+  document.getElementById('pw-err').textContent = '';
+  document.getElementById('modal-pw').classList.remove('hidden');
+  setTimeout(() => document.getElementById('pw-input').focus(), 80);
+}
+
+function checkPassword() {
+  const val = document.getElementById('pw-input').value;
+  if (val === PASS) {
+    isUnlocked = true;
+    closeModal('modal-pw');
+    updateLockUI();
+    log('ok', '[AUTH] ✔ UNLOCKED · EDIT MODE');
+  } else {
+    const err = document.getElementById('pw-err');
+    err.textContent = '✕ รหัสไม่ถูกต้อง — ลองใหม่';
+    err.className = 'modal-err shake';
+    setTimeout(() => err.className = 'modal-err', 400);
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+    log('err', '[AUTH] ✕ WRONG PASSWORD');
+  }
+}
+
+function lockNow() {
+  isUnlocked = false;
+  updateLockUI();
+  log('warn', '[AUTH] LOCKED');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+// ════════════════════════════════════
+//  AUTO-PAIR
+// ════════════════════════════════════
+function autoGrabName(srcFilename) {
+  const base = srcFilename.toUpperCase().replace(/\.CSV$/i, '');
+  return 'GRAB_' + base + '.CSV';
+}
+
+// ════════════════════════════════════
+//  NORMALIZE KEY — ตัด whitespace ทุกชนิด + BOM + non-breaking space
+//  รองรับ ERP/Excel export ที่มี invisible chars
+// ════════════════════════════════════
+function normalizeKey(s) {
+  return String(s == null ? '' : s)
+    .replace(/^\uFEFF/, '')          // BOM ที่หัวไฟล์
+    .replace(/\u00A0/g, ' ')         // non-breaking space → space
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // zero-width chars
+    .replace(/\r/g, '')              // carriage return
+    .trim()                          // space ปกติ
+    .toUpperCase();                  // uppercase เพื่อกันตัวพิมพ์เล็ก/ใหญ่
+}
+
+// ════════════════════════════════════
+//  VALIDATE / RUN
+// ════════════════════════════════════
+async function validateAll() {
+  const srcKeys = Object.keys(sourceFilesCache);
+  if (!srcKeys.length) { log('err','CHECK: ยังไม่ได้ UPLOAD จำนวนสินค้า xxx.csv (R01.102)'); return; }
+  log('dim','─'.repeat(40));
+  let valid = 0;
+  for (const k of srcKeys) {
+    const grabName = autoGrabName(k);
+    const inDb = grabFilesList.some(f => f.name === grabName);
+    if (inDb) {
+      log('ok', '  ✔ ถูกต้อง ' + k + ' → ' + grabName);
+      valid++;
+    } else {
+      log('err', '  ✕ ไม่ถูกต้อง ' + k + ' → ' + grabName + ' (ไม่พบใน Supabase)');
+    }
+  }
+  log('info', 'CHECK: ' + valid + '/' + srcKeys.length + ' PAIRS READY');
+  flashLogStatus('CHECKED', 'ok');
+}
+
+async function runAll() {
+  const srcKeys = Object.keys(sourceFilesCache);
+  if (!srcKeys.length) { log('err','NO REPORT FILE · ยังไม่ได้ UPLOAD ไฟล์จำนวนสินค้า xxx.csv (R01.102)'); return; }
+  if (!window._sbGetCSVText) { log('err','[DB] SUPABASE NOT READY'); return; }
+
+  processedOutputs = {};
+  document.getElementById('btn-download-all').classList.add('hidden');
+
+  log('dim','═'.repeat(40));
+  log('info','START · ' + srcKeys.length + ' FILES');
+  flashLogStatus('RUNNING','info');
+
+  const branchSubs = {
+    'SRC': parseFloat(document.getElementById('sub-src').value) || 0,
+    'SSS': parseFloat(document.getElementById('sub-sss').value) || 0,
+    'KKL': parseFloat(document.getElementById('sub-kkl').value) || 0,
+    'WRD': parseFloat(document.getElementById('sub-wrd').value) || 0,
+    'ONN': parseFloat(document.getElementById('sub-onn').value) || 0,
+  };
+  const _d = new Date();
+  const dateSuffix = _d.getDate() + '-' + (_d.getMonth()+1) + '-' + _d.getFullYear();
+  const bar = document.getElementById('progress-bar');
+  const pt  = document.getElementById('progress-text');
+  let done = 0, tot = 0, skip = 0;
+
+  for (let s = 0; s < srcKeys.length; s++) {
+    const srcKey  = srcKeys[s];
+    const grabKey = autoGrabName(srcKey);
+    const base    = srcKey.toUpperCase().replace(/\.CSV$/i, '');
+    log('dim','─'.repeat(36));
+    log('info', '[' + (s+1) + '/' + srcKeys.length + '] สาขา ' + base + ' → ' + grabKey);
+    pt.textContent  = srcKey + ' ' + (s+1) + '/' + srcKeys.length;
+    bar.style.width = ((s+1) / srcKeys.length * 100) + '%';
+
+    const srcText = sourceFilesCache[srcKey];
+
+    let grabText;
+    try {
+      grabText = await window._sbGetCSVText(grabKey);
+    } catch(e) {
+      log('err', '  SKIP: ' + grabKey + ' · ' + e.message);
+      skip++; continue;
+    }
+
+    const srcRows  = parseCSV(srcText);
+    const grabRows = parseCSV(grabText);
+    const srcDataRows = srcRows.length - 1;  // ไม่นับ header
+    const grabDataRows = grabRows.length - 3; // ไม่นับ 3 header rows
+    log('ok', '  LOADED · ' + base + ': ' + srcDataRows + ' สินค้า  |  GRAB: ' + grabDataRows + ' สินค้า');
+
+    // Build map: col E (idx 4) → col G (idx 6) − subtract
+    const srcMap = {};
+    let srcSkipped = 0;
+    srcRows.forEach((row, idx) => {
+      if (idx === 0) return;
+      const key = normalizeKey(row[4]);
+      if (!key) { srcSkipped++; return; }
+      const raw = parseFloat(String(row[6] || '').replace(/,/g, '')) || 0;
+      const val = raw - (branchSubs[base] ?? 0);
+      srcMap[key] = val > 0 ? String(Math.floor(val)) : '';
+    });
+
+
+    // Update grab: col D (idx 3) → set col E (idx 4) & F (idx 5)
+    let updated = 0, zeroed = 0, pendingHit = 0;
+    const pendingSet = new Set(pendingSkus.map(p => normalizeKey(p.sku)));
+    const newGrabRows = grabRows.map((row, idx) => {
+      if (idx < 3) return row;
+      const key = normalizeKey(row[3]);
+      const r   = [...row];
+      if (pendingSet.has(key)) {
+        r[4] = ''; r[5] = '';
+        r[15] = 'out-of-stock indefinitely';
+        const entry = pendingSkus.find(p => normalizeKey(p.sku) === key);
+        if (entry && !entry.name && row[2]) entry.name = row[2].trim();
+        pendingHit++;
+        return r;
+      }
+      if (Object.prototype.hasOwnProperty.call(srcMap, key)) {
+        const v = srcMap[key];
+        r[4] = v; r[5] = v;
+        r[15] = v !== '' ? 'in stock' : 'out-of-stock indefinitely';
+        updated++; if (v === '') zeroed++;
+        return r;
+      }
+      const rr = [...row];
+      rr[4] = ''; rr[5] = '';
+      rr[15] = 'out-of-stock indefinitely';
+      return rr;
+    });
+
+    if (pendingHit) {
+      log('warn', '  [PENDING] ' + pendingHit + ' SKUs → cleared & out-of-stock indefinitely');
+      renderPendingList();
+      savePendingSkus();
+    }
+
+    log('ok', '  UPDATED ' + updated + ' ROWS');
+    if (zeroed) log('warn', '  ' + zeroed + ' ROWS → EMPTY (≤ 0)');
+    tot += updated;
+
+    const outputName = grabKey.replace(/\.CSV$/i, '_' + dateSuffix + '.csv');
+    processedOutputs[outputName] = csvToText(newGrabRows);
+    log('ok', '  ✔ READY: ' + outputName);
+    done++;
+  }
+
+  bar.style.width = '100%'; pt.textContent = 'COMPLETE';
+  log('dim','═'.repeat(40));
+  log('ok', 'DONE · PROCESSED:' + done + ' · UPDATED:' + tot + ' · SKIPPED:' + skip);
+  flashLogStatus('DONE','ok');
+
+  if (done > 0) {
+    document.getElementById('btn-download-all').classList.remove('hidden');
+    log('info', '⬇ กด DOWNLOAD ALL เพื่อดาวน์โหลดไฟล์ทั้งหมด (' + done + ' FILES)');
+  }
+}
+
+function downloadAll() {
+  const keys = Object.keys(processedOutputs);
+  if (!keys.length) { log('warn', 'ไม่มีไฟล์ให้ดาวน์โหลด'); return; }
+  keys.forEach(name => downloadFile(processedOutputs[name], name));
+  log('ok', '[DL] DOWNLOADED ' + keys.length + ' FILES');
+}
+
+// ════════════════════════════════════
+//  LOG
+// ════════════════════════════════════
+function log(type, msg) {
+  const p = document.getElementById('log-panel');
+  const d = document.createElement('div');
+  d.className   = 'log-line log-'+type;
+  d.textContent = '['+new Date().toTimeString().slice(0,8)+'] '+msg;
+  p.appendChild(d); p.scrollTop = p.scrollHeight;
+}
+function clearLog() {
+  document.getElementById('log-panel').innerHTML = '<div class="log-line log-dim">  [SYS] LOG CLEARED</div>';
+  document.getElementById('progress-bar').style.width = '0%';
+  document.getElementById('progress-text').textContent = 'READY';
+  flashLogStatus('IDLE','info');
+}
+function flashLogStatus(txt, type) {
+  const e = document.getElementById('log-status');
+  e.className = 'badge badge-'+type; e.textContent = txt;
+}
+
+// ════════════════════════════════════
+//  PENDING SKU UPDATE
+// ════════════════════════════════════
+async function loadPendingSkus() {
+  if (!window._sbLoadPendingSkus) return;
+  try {
+    pendingSkus = await window._sbLoadPendingSkus();
+    renderPendingList();
+    log('ok', '[PENDING] LOADED · ' + pendingSkus.length + ' SKUs');
+  } catch(e) {
+    log('err', '[PENDING] LOAD ERROR: ' + e.message);
+  }
+}
+
+async function savePendingSkus() {
+  if (!window._sbSavePendingSkus) return;
+  try {
+    await window._sbSavePendingSkus(pendingSkus);
+  } catch(e) {
+    log('err', '[PENDING] SAVE ERROR: ' + e.message);
+  }
+}
+
+async function addPendingSku() {
+  const input = document.getElementById('pending-sku-input');
+  const sku   = (input.value || '').trim().toUpperCase();
+  if (!sku) return;
+  if (pendingSkus.some(p => p.sku === sku)) {
+    log('warn', '[PENDING] ' + sku + ' มีอยู่แล้ว');
+    return;
+  }
+  const entry = { sku, name: '' };
+  pendingSkus.push(entry);
+  input.value = '';
+  renderPendingList();
+  savePendingSkus();
+  log('ok', '[PENDING] ADDED: ' + sku + ' · กำลังค้นหาชื่อ...');
+
+  if (window._sbGetCSVText && grabFilesList.length) {
+    for (const f of grabFilesList) {
+      try {
+        const text = await window._sbGetCSVText(f.name);
+        const rows = parseCSV(text);
+        const found = rows.find((r, i) => i >= 3 && (r[3] || '').trim().toUpperCase() === sku);
+        if (found && found[2]) {
+          entry.name = found[2].trim();
+          renderPendingList();
+          savePendingSkus();
+          log('ok', '[PENDING] ' + sku + ' → ' + entry.name);
+          return;
+        }
+      } catch(e) { /* skip */ }
+    }
+    log('warn', '[PENDING] ' + sku + ' · ไม่พบชื่อใน GRAB files');
+  }
+}
+
+function removePendingSku(sku) {
+  pendingSkus = pendingSkus.filter(p => p.sku !== sku);
+  renderPendingList();
+  savePendingSkus();
+  log('ok', '[PENDING] REMOVED: ' + sku);
+}
+
+function renderPendingList() {
+  const el    = document.getElementById('pending-list');
+  const badge = document.getElementById('pending-badge');
+  if (!el) return;
+  badge.textContent = pendingSkus.length + ' SKUs';
+  badge.className   = pendingSkus.length ? 'badge badge-warn' : 'badge badge-info';
+  if (!pendingSkus.length) {
+    el.innerHTML = '<span style="font-family:var(--font-th);font-size:13px;color:var(--text-dim)">ยังไม่มี SKU...</span>';
+    return;
+  }
+  const rows = pendingSkus.map(p => `
+    <tr>
+      <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
+      <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;color:var(--text-dim)">${p.name ? esc(p.name) : '—'}</td>
+      <td style="padding:6px 10px;text-align:center">
+        <button onclick="window.removePendingSku('${esc(p.sku)}')" style="font-family:var(--font);font-size:7px;padding:3px 8px;background:#ffe0e8;border:1px solid #dd8899;color:#cc2244;cursor:pointer">DELETE</button>
+      </td>
+    </tr>`).join('');
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
+        <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">SKU</th>
+        <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">ITEM NAME</th>
+        <th style="padding:6px 10px;font-family:var(--font);font-size:7px"></th>
+      </tr>
+    </thead>
+    <tbody style="border:1px solid #ddd">${rows}</tbody>
+  </table>`;
+}
+
+function toggleGrabManager() {
+  const body  = document.getElementById('grab-manager-body');
+  const arrow = document.getElementById('grab-manager-arrow');
+  const isHidden = body.style.display === 'none';
+  body.style.display  = isHidden ? '' : 'none';
+  arrow.textContent   = isHidden ? '▲' : '▼';
+}
+
+// ── expose globals ──
+Object.assign(window, {
+  openConfig, saveConfig,
+  openUnlock, checkPassword, lockNow, closeModal,
+  triggerSrcLoad, loadSourceFiles, clearSourceFiles,
+  toggleGrabManager,
+  triggerUpload, uploadCSVFiles,
+  addPendingSku, removePendingSku,
+  runAll, validateAll, downloadAll, clearLog
+});
+
+// ── init ──
+updateLockUI();
+renderPendingList();
+</script>
+</body>
+</html>
