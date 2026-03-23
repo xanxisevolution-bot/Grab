@@ -357,6 +357,26 @@
   <button class="btn btn-dim hidden" id="btn-lock" onclick="window.lockNow()">🔒 LOCK</button>
 </div>
 
+<!-- ══ GRAB MART MANAGER BAR ══ -->
+<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-bottom:18px;background:var(--panel);border:2px solid var(--input-border);box-shadow:3px 3px 0 var(--shadow);flex-wrap:wrap">
+  <span style="font-size:14px">🛒</span>
+  <span style="font-family:var(--font);font-size:8px;color:var(--accent);letter-spacing:2px;flex:1">GRAB MART MANAGER</span>
+  <button onclick="window.open('https://grabmartmanager.vercel.app/','_blank')"
+    class="btn btn-green" style="font-size:7px;padding:8px 14px;letter-spacing:1px">
+    ↗ OPEN
+  </button>
+</div>
+
+<!-- ══ GRAB MART FORM BAR ══ -->
+<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-bottom:18px;background:var(--panel);border:2px solid var(--input-border);box-shadow:3px 3px 0 var(--shadow);flex-wrap:wrap">
+  <span style="font-size:14px">📋</span>
+  <span style="font-family:var(--font);font-size:8px;color:var(--accent);letter-spacing:2px;flex:1">GRAB MART FORM</span>
+  <button onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLSdHnuK9wOo3ZOYYICKW-FpGqBq9SA0d75vrzrAsWYhf7MI3hA/viewform?pli=1','_blank')"
+    class="btn btn-info" style="font-size:7px;padding:8px 14px;letter-spacing:1px">
+    ↗ OPEN
+  </button>
+</div>
+
 <!-- Guide -->
 <div class="card">
   <div class="section-title">HOW TO USE</div>
@@ -421,8 +441,9 @@
     <span id="pending-badge" class="badge badge-info" style="margin-left:auto">0 SKUs</span>
   </div>
   <div class="th-text" style="color:var(--text);font-weight:700;margin-bottom:14px;line-height:2.2">
-    • เมื่อมีการแก้ไขราคา/ชื่อสินค้า/รูปภาพสินค้า ต้องยื่น FORM ให้เจ้าที่ GRAB MART ตรวจสอบ
- ใช้เวลา 3-5 วัน &nbsp;&nbsp;&nbsp;&nbsp; ยื่นฟอร์มที่นี่ 🠊 <button onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLSdHnuK9wOo3ZOYYICKW-FpGqBq9SA0d75vrzrAsWYhf7MI3hA/viewform?pli=1','_blank')" style="font-family:var(--font);font-size:7px;padding:2px 8px;border:2px solid #333333;background:#ffffff;color:#333333;cursor:pointer;letter-spacing:1px">GRAB FORM</button> <BR> • ระบุ SKU ที่รอการแก้ไข (SKU นี้จะไม่ถูกนำขึ้น GRABMART) <BR> • SKU จะบันทึกค้างไว้ในระบบตลอดจนกว่าจะลบออก
+    • เมื่อมีการแก้ไขราคา/ชื่อสินค้า/รูปภาพสินค้า ต้องยื่น FORM ให้เจ้าที่ GRAB MART ตรวจสอบ ใช้เวลา 3-5 วัน<BR>
+    • ระบุ SKU ที่รอการแก้ไข (SKU นี้จะไม่ถูกนำขึ้น GRABMART) <BR>
+    • SKU จะบันทึกค้างไว้ในระบบตลอดจนกว่าจะลบออก
   </div>
   <div class="btn-row" style="margin-bottom:14px;gap:8px">
     <input type="text" id="pending-sku-input" placeholder="กรอก SKU..." onkeydown="if(event.key==='Enter')window.addPendingSku()" style="font-family:var(--font-th);font-size:13px;padding:8px 10px;border:2px solid var(--input-border);background:var(--input-bg);color:var(--text);flex:1;min-width:0">
