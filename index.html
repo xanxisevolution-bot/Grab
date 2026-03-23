@@ -111,6 +111,14 @@
   }
   .config-input:focus { border-color: var(--border); }
 
+  /* ── saved config notice ── */
+  .config-saved-notice {
+    display: flex; align-items: center; gap: 8px;
+    background: #eef8f2; border: 2px solid #448844;
+    padding: 8px 12px; margin-bottom: 14px;
+    font-family: var(--font-th); font-size: 12px; color: #226633;
+  }
+
   /* ── DB status ── */
   .fb-status-bar {
     display: flex; align-items: center; gap: 10px;
@@ -297,10 +305,17 @@
 <div class="modal-overlay hidden" id="modal-config">
   <div class="modal-box" style="max-width:480px">
     <div class="modal-title">⚙ SUPABASE CONFIG</div>
-    <div style="font-family:var(--font-th);font-size:13px;color:var(--text-dim);margin-bottom:20px;line-height:2">
+    <div style="font-family:var(--font-th);font-size:13px;color:var(--text-dim);margin-bottom:16px;line-height:2">
       ใส่ข้อมูล Supabase Project ของคุณ<br>
       <span style="font-size:11px">Settings → API ใน Supabase Dashboard</span>
     </div>
+
+    <!-- saved config notice (แสดงเมื่อมี config บันทึกไว้) -->
+    <div id="cfg-saved-notice" class="config-saved-notice" style="display:none">
+      <span>✔</span>
+      <span>Config ถูกบันทึกไว้แล้ว — แก้ไขได้ด้านล่าง</span>
+    </div>
+
     <div style="text-align:left;margin-bottom:10px">
       <label style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">PROJECT URL</label>
       <input class="config-input" type="text" id="cfg-url" placeholder="https://xxxxxxxxxxxx.supabase.co">
@@ -312,6 +327,7 @@
     <div id="cfg-err" style="font-family:var(--font-th);font-size:11px;color:var(--danger);min-height:18px;margin-bottom:10px"></div>
     <div class="modal-btn-row">
       <button class="btn btn-green" onclick="window.saveConfig()">💾 SAVE & CONNECT</button>
+      <button class="btn btn-red"   id="btn-cfg-clear" onclick="window.clearConfig()" style="display:none">🗑 CLEAR SAVED</button>
       <button class="btn btn-dim"   onclick="window.closeModal('modal-config')">✕ CANCEL</button>
     </div>
   </div>
@@ -328,7 +344,7 @@
 <!-- Supabase status bar -->
 <div class="fb-status-bar">
   <span class="fb-dot" id="fb-dot"></span>
-  <span class="fb-label" id="fb-label">CONNECTING TO SUPABASE...</span>
+  <span class="fb-label" id="fb-label">LOADING SAVED CONFIG...</span>
   <span class="fb-ts" id="fb-ts"></span>
   <button class="btn btn-dim" onclick="window.openConfig()" style="margin-left:auto;font-size:6px;padding:6px 10px">⚙ CONFIG</button>
 </div>
@@ -456,89 +472,116 @@
 
 <!-- ══ SUPABASE CDN ══ -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
 <script>
-  function _sbGetConfig() {
-    try { return JSON.parse(localStorage.getItem('sb_config') || '{}'); }
-    catch(e) { return {}; }
-  }
+// ════════════════════════════════════
+//  CONFIG via URL HASH  (#cfg=base64)
+//  - Key ไม่อยู่ในโค้ด → push GitHub ได้เลย
+//  - Hash ไม่ถูกส่งไป server → ปลอดภัย
+//  - บันทึกถาวรใน browser ผ่าน URL ที่ bookmark/share ได้
+// ════════════════════════════════════
 
-  async function _sbInitSupabase() {
-    var cfg = _sbGetConfig();
-    var url = cfg.url, key = cfg.key;
-    if (!url || !key) {
-      window._sbReady = false;
-      if (window._onSbReady) window._onSbReady(false, 'ยังไม่ได้ตั้งค่า — กด ⚙ CONFIG เพื่อใส่ Supabase URL & Key');
-      return;
+function _hashEncode(obj) {
+  try { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); }
+  catch(e) { return ''; }
+}
+function _hashDecode(str) {
+  try { return JSON.parse(decodeURIComponent(escape(atob(str)))); }
+  catch(e) { return null; }
+}
+
+function _sbSaveHash(cfg) {
+  // เขียน hash ใหม่โดยไม่ reload หน้า
+  const encoded = _hashEncode(cfg);
+  history.replaceState(null, '', location.pathname + location.search + '#cfg=' + encoded);
+}
+
+function _sbGetConfig() {
+  // อ่านจาก URL hash ก่อน, fallback → empty
+  try {
+    const hash = location.hash; // เช่น #cfg=eyJ1cmw...
+    const m = hash.match(/[#&]cfg=([^&]*)/);
+    if (m && m[1]) {
+      const obj = _hashDecode(m[1]);
+      if (obj && obj.url && obj.key) return obj;
     }
-    try {
-      var sb = supabase.createClient(url, key);
+  } catch(e) { /* ignore */ }
+  return { url: '', key: '' };
+}
 
-      // ทดสอบ connection
-      var test = await sb.from('grab_files').select('id').limit(1);
-      if (test.error && test.error.code !== 'PGRST116') throw new Error(test.error.message);
-
-      window._sb = sb;
-      window._sbReady = true;
-
-      window._sbSaveCSV = async function(filename, text) {
-        var name = filename.toUpperCase().replace(/\//g,'_');
-        var res = await sb.from('grab_files')
-          .upsert({ name: name, content: text, updated_at: new Date().toISOString() }, { onConflict: 'name' });
-        if (res.error) throw new Error(res.error.message);
-        return name;
-      };
-
-      window._sbGetCSVText = async function(filename) {
-        var name = filename.toUpperCase().replace(/\//g,'_');
-        var res = await sb.from('grab_files').select('content').eq('name', name).single();
-        if (res.error) throw new Error('ไม่พบไฟล์ ' + name + ' ใน Supabase');
-        return res.data.content;
-      };
-
-      window._sbListCSVFiles = async function() {
-        var res = await sb.from('grab_files').select('name, updated_at').order('name');
-        if (res.error) throw new Error(res.error.message);
-        return (res.data || []).map(function(r) {
-          return { name: r.name, updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : null };
-        });
-      };
-
-      window._sbSavePendingSkus = async function(skus) {
-        var res = await sb.from('app_settings')
-          .upsert({ key: 'pending_skus', value: JSON.stringify(skus) }, { onConflict: 'key' });
-        if (res.error) throw new Error(res.error.message);
-      };
-
-      window._sbLoadPendingSkus = async function() {
-        var res = await sb.from('app_settings').select('value').eq('key', 'pending_skus').single();
-        if (res.error) return [];
-        try { return JSON.parse(res.data.value) || []; } catch(e) { return []; }
-      };
-
-      if (window._onSbReady) window._onSbReady(true);
-
-    } catch(e) {
-      window._sbReady = false;
-      window._sbSaveCSV = null; window._sbGetCSVText = null;
-      window._sbListCSVFiles = null; window._sbSavePendingSkus = null;
-      window._sbLoadPendingSkus = null;
-      if (window._onSbReady) window._onSbReady(false, e.message);
-    }
+async function _sbInitSupabase() {
+  const cfg = _sbGetConfig();
+  const url = cfg.url, key = cfg.key;
+  if (!url || !key) {
+    window._sbReady = false;
+    if (window._onSbReady) window._onSbReady(false, 'ยังไม่ได้ตั้งค่า — กด ⚙ CONFIG เพื่อใส่ Supabase URL & Key');
+    return;
   }
+  try {
+    const sb = supabase.createClient(url, key);
+    const test = await sb.from('grab_files').select('id').limit(1);
+    if (test.error && test.error.code !== 'PGRST116') throw new Error(test.error.message);
 
-  window._sbInit = _sbInitSupabase;
+    window._sb = sb;
+    window._sbReady = true;
 
-  // auto init หลัง DOM โหลดเสร็จ
-  document.addEventListener('DOMContentLoaded', function() {
-    _sbInitSupabase();
-  });
+    window._sbSaveCSV = async function(filename, text) {
+      const name = filename.toUpperCase().replace(/\//g,'_');
+      const res = await sb.from('grab_files')
+        .upsert({ name, content: text, updated_at: new Date().toISOString() }, { onConflict: 'name' });
+      if (res.error) throw new Error(res.error.message);
+      return name;
+    };
+
+    window._sbGetCSVText = async function(filename) {
+      const name = filename.toUpperCase().replace(/\//g,'_');
+      const res = await sb.from('grab_files').select('content').eq('name', name).single();
+      if (res.error) throw new Error('ไม่พบไฟล์ ' + name + ' ใน Supabase');
+      return res.data.content;
+    };
+
+    window._sbListCSVFiles = async function() {
+      const res = await sb.from('grab_files').select('name, updated_at').order('name');
+      if (res.error) throw new Error(res.error.message);
+      return (res.data || []).map(r => ({
+        name: r.name,
+        updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : null
+      }));
+    };
+
+    window._sbSavePendingSkus = async function(skus) {
+      const res = await sb.from('app_settings')
+        .upsert({ key: 'pending_skus', value: JSON.stringify(skus) }, { onConflict: 'key' });
+      if (res.error) throw new Error(res.error.message);
+    };
+
+    window._sbLoadPendingSkus = async function() {
+      const res = await sb.from('app_settings').select('value').eq('key', 'pending_skus').single();
+      if (res.error) return [];
+      try { return JSON.parse(res.data.value) || []; } catch(e) { return []; }
+    };
+
+    if (window._onSbReady) window._onSbReady(true);
+
+  } catch(e) {
+    window._sbReady = false;
+    window._sbSaveCSV = null; window._sbGetCSVText = null;
+    window._sbListCSVFiles = null; window._sbSavePendingSkus = null;
+    window._sbLoadPendingSkus = null;
+    if (window._onSbReady) window._onSbReady(false, e.message);
+  }
+}
+
+window._sbInit = _sbInitSupabase;
+
+document.addEventListener('DOMContentLoaded', async function() {
+  // อ่าน config จาก URL hash แล้ว init อัตโนมัติ
+  await _sbInitSupabase();
+});
 </script>
 
 <!-- ══ MAIN SCRIPT ══ -->
 <script>
-// ════════════════════════════════════
-//  PASSWORD — เปลี่ยนได้ที่นี่
-// ════════════════════════════════════
 const PASS = '1234';
 
 let isUnlocked       = false;
@@ -599,27 +642,38 @@ function renderGrabFileList() {
   </table>`;
 }
 
-function setDbStatus(ok, msg) {
+async function setDbStatus(ok, msg) {
   const dot = document.getElementById('fb-dot');
   const lbl = document.getElementById('fb-label');
   const ts  = document.getElementById('fb-ts');
   if (!dot) return;
-  dot.className   = ok ? 'fb-dot ok' : 'fb-dot err';
-  lbl.className   = ok ? 'fb-label ok' : 'fb-label err';
-  const cfg = JSON.parse(localStorage.getItem('sb_config') || '{}');
+  dot.className = ok ? 'fb-dot ok' : 'fb-dot err';
+  lbl.className = ok ? 'fb-label ok' : 'fb-label err';
+  const cfg = _sbGetConfig();
   const projId = cfg.url ? cfg.url.replace('https://','').split('.')[0] : 'not configured';
-  lbl.textContent = ok ? '● SUPABASE CONNECTED · ' + projId : '✕ ' + (msg || 'NOT CONNECTED — กด ⚙ CONFIG');
-  ts.textContent  = new Date().toTimeString().slice(0,8);
+  lbl.textContent = ok
+    ? '● SUPABASE CONNECTED · ' + projId
+    : '✕ ' + (msg || 'NOT CONNECTED — กด ⚙ CONFIG');
+  ts.textContent = new Date().toTimeString().slice(0,8);
 }
 
 // ════════════════════════════════════
 //  CONFIG MODAL
 // ════════════════════════════════════
-function openConfig() {
-  const cfg = JSON.parse(localStorage.getItem('sb_config') || '{}');
+async function openConfig() {
+  const cfg = _sbGetConfig();
+  const hasSaved = !!(cfg.url && cfg.key);
+
   document.getElementById('cfg-url').value = cfg.url || '';
   document.getElementById('cfg-key').value = cfg.key || '';
   document.getElementById('cfg-err').textContent = '';
+
+  // แสดง notice และปุ่ม CLEAR ถ้ามี config บันทึกไว้
+  const notice = document.getElementById('cfg-saved-notice');
+  const btnClear = document.getElementById('btn-cfg-clear');
+  if (notice)   notice.style.display   = hasSaved ? 'flex' : 'none';
+  if (btnClear) btnClear.style.display = hasSaved ? '' : 'none';
+
   document.getElementById('modal-config').classList.remove('hidden');
 }
 
@@ -628,24 +682,37 @@ async function saveConfig() {
   const key = document.getElementById('cfg-key').value.trim();
   const err = document.getElementById('cfg-err');
   if (!url || !url.startsWith('https://')) { err.textContent = '✕ URL ต้องขึ้นต้นด้วย https://'; return; }
-  if (!key || key.length < 30) { err.textContent = '✕ Anon Key ไม่ถูกต้อง'; return; }
-  localStorage.setItem('sb_config', JSON.stringify({ url, key }));
-  closeModal('modal-config');
-  log('info', '[CFG] Supabase config saved · reconnecting...');
-  setDbStatus(false, 'reconnecting...');
+  if (!key || key.length < 30)             { err.textContent = '✕ Anon Key ไม่ถูกต้อง'; return; }
 
+  // บันทึกลง URL hash — ไม่ส่งไป server, ไม่อยู่ในโค้ด
+  _sbSaveHash({ url, key });
+
+  closeModal('modal-config');
+  log('info', '[CFG] Config saved to URL hash · reconnecting...');
+  log('info', '[CFG] ★ Bookmark URL นี้เพื่อใช้งานครั้งหน้าโดยไม่ต้องกรอกใหม่');
+  setDbStatus(false, 'reconnecting...');
   await window._sbInit();
+}
+
+async function clearConfig() {
+  history.replaceState(null, '', location.pathname + location.search);
+  document.getElementById('cfg-url').value = '';
+  document.getElementById('cfg-key').value = '';
+  const notice = document.getElementById('cfg-saved-notice');
+  const btnClear = document.getElementById('btn-cfg-clear');
+  if (notice)   notice.style.display   = 'none';
+  if (btnClear) btnClear.style.display = 'none';
+  closeModal('modal-config');
+  window._sbReady = false;
+  setDbStatus(false, 'Config cleared — กด ⚙ CONFIG เพื่อตั้งค่าใหม่');
+  log('warn', '[CFG] Config cleared · URL hash removed');
 }
 
 // ════════════════════════════════════
 //  CSV UTILITIES
 // ════════════════════════════════════
 function parseCSV(text) {
-  // ── Strip BOM + normalize line endings ──
   const t = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-  // ── Single-pass parse + fix rogue unescaped " ──
-  // รองรับ: multi-line quoted cells, escaped "", rogue " ในชื่อสินค้า
   const rows = [];
   let row = [], cur = '', inQ = false;
   let i = 0;
@@ -654,46 +721,25 @@ function parseCSV(text) {
     if (inQ) {
       if (ch === '"') {
         const next = t[i + 1];
-        if (next === '"') {
-          // escaped "" → emit single "
-          cur += '"'; i += 2; continue;
-        } else if (next === ',' || next === '\n' || next === undefined || i + 1 >= t.length) {
-          // valid closing quote
-          inQ = false; i++; continue;
-        } else {
-          // rogue " inside quoted field (เช่น 3M Coban 1" x 5) — skip it
-          i++; continue;
-        }
-      } else {
-        // normal char inside quoted field (รวม \n)
-        cur += ch; i++; continue;
-      }
+        if (next === '"') { cur += '"'; i += 2; continue; }
+        else if (next === ',' || next === '\n' || next === undefined || i + 1 >= t.length) { inQ = false; i++; continue; }
+        else { i++; continue; }
+      } else { cur += ch; i++; continue; }
     } else {
       if (ch === '"') {
         const prev = i > 0 ? t[i - 1] : null;
-        if (prev === null || prev === ',' || prev === '\n') {
-          // valid opening quote
-          inQ = true; i++; continue;
-        } else {
-          // rogue " outside quoted field — skip
-          i++; continue;
-        }
-      } else if (ch === ',') {
-        row.push(cur); cur = ''; i++; continue;
-      } else if (ch === '\n') {
-        row.push(cur); cur = '';
-        rows.push(row); row = [];
-        i++; continue;
-      } else {
-        cur += ch; i++; continue;
-      }
+        if (prev === null || prev === ',' || prev === '\n') { inQ = true; i++; continue; }
+        else { i++; continue; }
+      } else if (ch === ',') { row.push(cur); cur = ''; i++; continue; }
+      else if (ch === '\n') { row.push(cur); cur = ''; rows.push(row); row = []; i++; continue; }
+      else { cur += ch; i++; continue; }
     }
   }
-  // last row
   row.push(cur);
-  if (row.some(function(c) { return c !== ''; }) || rows.length === 0) rows.push(row);
+  if (row.some(c => c !== '') || rows.length === 0) rows.push(row);
   return rows;
 }
+
 function csvToText(rows) {
   return rows.map(row => row.map(cell => {
     const s = String(cell == null ? '' : cell);
@@ -720,19 +766,8 @@ function triggerSrcLoad() {
   document.getElementById('src-file-input').click();
 }
 
-async // ════════════════════════════════════
-//  CLEAN SOURCE CSV — ทำความสะอาดไฟล์ ERP ก่อนใช้งาน
-// ════════════════════════════════════
 function cleanSourceCSV(rawText, filename) {
-  var text = rawText;
-
-  // 1. ลบ BOM
-  text = text.replace(/^\uFEFF/, '').replace(/^\uFFFE/, '');
-
-  // 2. normalize line endings
-  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-  // 3. ตรวจ delimiter — รองรับ TSV (tab-separated) จาก ERP บางตัว
+  var text = rawText.replace(/^\uFEFF/, '').replace(/^\uFFFE/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   var firstLine = text.split('\n')[0];
   var tabCount   = (firstLine.match(/\t/g) || []).length;
   var commaCount = (firstLine.match(/,/g)  || []).length;
@@ -745,19 +780,13 @@ function cleanSourceCSV(rawText, filename) {
           ? '"' + s.replace(/"/g, '""') + '"' : s;
       }).join(',');
     }).join('\n');
-    warnings.push('TSV\u2192CSV converted (' + tabCount + ' tabs/row)');
+    warnings.push('TSV→CSV converted (' + tabCount + ' tabs/row)');
   }
-
-  // 4. parse แล้วตรวจ column count
   var rows = parseCSV(text);
-  if (rows.length < 2) {
-    throw new Error('ไฟล์ว่างหรือ parse ไม่ได้ — ตรวจสอบ format');
-  }
+  if (rows.length < 2) throw new Error('ไฟล์ว่างหรือ parse ไม่ได้ — ตรวจสอบ format');
   var expectedCols = rows[0].length;
   var badRows = 0;
   rows.forEach(function(r, i) { if (i > 0 && r.length !== expectedCols) badRows++; });
-
-  // 5. ตรวจว่ามี SKU (col E=4) และ QTY (col G=6) จริง
   var hasData = false;
   rows.forEach(function(r, i) {
     if (i === 0) return;
@@ -765,21 +794,15 @@ function cleanSourceCSV(rawText, filename) {
     var qty = (r[6] || '').trim();
     if (sku && !isNaN(parseFloat(qty))) hasData = true;
   });
-  if (!hasData) {
-    throw new Error('ไม่พบ SKU (col E) หรือ จำนวนสินค้า (col G) — ตรวจสอบว่า Export ถูก Report หรือไม่');
-  }
-
-  // 6. log สรุป
+  if (!hasData) throw new Error('ไม่พบ SKU (col E) หรือ จำนวนสินค้า (col G) — ตรวจสอบว่า Export ถูก Report หรือไม่');
   var skus = new Set();
-  rows.forEach(function(r, i) {
-    if (i > 0) { var k = (r[4] || '').trim(); if (k) skus.add(k); }
-  });
+  rows.forEach(function(r, i) { if (i > 0) { var k = (r[4] || '').trim(); if (k) skus.add(k); } });
   log('ok', '[CLEAN] ' + filename + ' · ' + (rows.length - 1) + ' rows · ' + skus.size + ' unique SKUs');
-  if (badRows)        log('warn', '[CLEAN] ' + badRows + ' rows มีจำนวน column ผิดปกติ');
+  if (badRows)         log('warn', '[CLEAN] ' + badRows + ' rows มีจำนวน column ผิดปกติ');
   if (warnings.length) log('warn', '[CLEAN] ' + warnings.join(', '));
-
   return text;
 }
+
 async function loadSourceFiles(files) {
   if (!files.length) return;
   const badge = document.getElementById('src-status');
@@ -787,21 +810,17 @@ async function loadSourceFiles(files) {
   let ok = 0, fail = 0;
   for (const file of files) {
     try {
-      // อ่านไฟล์ — ลอง UTF-8 ก่อน ถ้าภาษาไทยเพี้ยนลอง TIS-620
       let text;
       const rawBuf = await file.arrayBuffer();
       try {
         text = new TextDecoder('utf-8').decode(rawBuf);
-        // ถ้า Thai char เป็น replacement char (ภาษาไทยเสีย) → ลอง tis-620
-        if (/�/.test(text)) {
+        if (/\uFFFD/.test(text)) {
           text = new TextDecoder('windows-874').decode(rawBuf);
           log('warn', '[SRC] ' + file.name.toUpperCase() + ' · ตรวจพบ TIS-620/Windows-874 encoding');
         }
       } catch(e) {
         text = new TextDecoder('windows-874').decode(rawBuf);
       }
-
-      // Clean
       const cleaned = cleanSourceCSV(text, file.name.toUpperCase());
       sourceFilesCache[file.name.toUpperCase()] = cleaned;
       log('ok', '[SRC] ✔ ' + file.name.toUpperCase() + ' (' + (file.size/1024).toFixed(1) + ' KB)');
@@ -837,9 +856,7 @@ function renderSrcList() {
     list.innerHTML = '<span style="font-family:var(--font-th);font-size:14px;color:var(--text-dim)">ยังไม่ได้โหลดไฟล์</span>';
     return;
   }
-  list.innerHTML = keys.map(k =>
-    `<span class="badge badge-ok" style="margin:2px">${esc(k)}</span>`
-  ).join('');
+  list.innerHTML = keys.map(k => `<span class="badge badge-ok" style="margin:2px">${esc(k)}</span>`).join('');
 }
 
 function triggerUpload() {
@@ -941,22 +958,17 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').r
 //  AUTO-PAIR
 // ════════════════════════════════════
 function autoGrabName(srcFilename) {
-  const base = srcFilename.toUpperCase().replace(/\.CSV$/i, '');
-  return 'GRAB_' + base + '.CSV';
+  return 'GRAB_' + srcFilename.toUpperCase().replace(/\.CSV$/i, '') + '.CSV';
 }
 
-// ════════════════════════════════════
-//  NORMALIZE KEY — ตัด whitespace ทุกชนิด + BOM + non-breaking space
-//  รองรับ ERP/Excel export ที่มี invisible chars
-// ════════════════════════════════════
 function normalizeKey(s) {
   return String(s == null ? '' : s)
-    .replace(/^\uFEFF/, '')          // BOM ที่หัวไฟล์
-    .replace(/\u00A0/g, ' ')         // non-breaking space → space
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // zero-width chars
-    .replace(/\r/g, '')              // carriage return
-    .trim()                          // space ปกติ
-    .toUpperCase();                  // uppercase เพื่อกันตัวพิมพ์เล็ก/ใหญ่
+    .replace(/^\uFEFF/, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\r/g, '')
+    .trim()
+    .toUpperCase();
 }
 
 // ════════════════════════════════════
@@ -970,12 +982,8 @@ async function validateAll() {
   for (const k of srcKeys) {
     const grabName = autoGrabName(k);
     const inDb = grabFilesList.some(f => f.name === grabName);
-    if (inDb) {
-      log('ok', '  ✔ ถูกต้อง ' + k + ' → ' + grabName);
-      valid++;
-    } else {
-      log('err', '  ✕ ไม่ถูกต้อง ' + k + ' → ' + grabName + ' (ไม่พบใน Supabase)');
-    }
+    if (inDb) { log('ok', '  ✔ ถูกต้อง ' + k + ' → ' + grabName); valid++; }
+    else       { log('err', '  ✕ ไม่ถูกต้อง ' + k + ' → ' + grabName + ' (ไม่พบใน Supabase)'); }
   }
   log('info', 'CHECK: ' + valid + '/' + srcKeys.length + ' PAIRS READY');
   flashLogStatus('CHECKED', 'ok');
@@ -988,7 +996,6 @@ async function runAll() {
 
   processedOutputs = {};
   document.getElementById('btn-download-all').classList.add('hidden');
-
   log('dim','═'.repeat(40));
   log('info','START · ' + srcKeys.length + ' FILES');
   flashLogStatus('RUNNING','info');
@@ -1016,35 +1023,24 @@ async function runAll() {
     bar.style.width = ((s+1) / srcKeys.length * 100) + '%';
 
     const srcText = sourceFilesCache[srcKey];
-
     let grabText;
-    try {
-      grabText = await window._sbGetCSVText(grabKey);
-    } catch(e) {
-      log('err', '  SKIP: ' + grabKey + ' · ' + e.message);
-      skip++; continue;
-    }
+    try { grabText = await window._sbGetCSVText(grabKey); }
+    catch(e) { log('err', '  SKIP: ' + grabKey + ' · ' + e.message); skip++; continue; }
 
     const srcRows  = parseCSV(srcText);
     const grabRows = parseCSV(grabText);
-    const srcDataRows = srcRows.length - 1;  // ไม่นับ header
-    const grabDataRows = grabRows.length - 3; // ไม่นับ 3 header rows
-    log('ok', '  LOADED · ' + base + ': ' + srcDataRows + ' สินค้า  |  GRAB: ' + grabDataRows + ' สินค้า');
+    log('ok', '  LOADED · ' + base + ': ' + (srcRows.length-1) + ' สินค้า  |  GRAB: ' + (grabRows.length-3) + ' สินค้า');
 
-    // Build map: col E (idx 4) → col G (idx 6) − subtract
     const srcMap = {};
-    let srcSkipped = 0;
     srcRows.forEach((row, idx) => {
       if (idx === 0) return;
       const key = normalizeKey(row[4]);
-      if (!key) { srcSkipped++; return; }
+      if (!key) return;
       const raw = parseFloat(String(row[6] || '').replace(/,/g, '')) || 0;
       const val = raw - (branchSubs[base] ?? 0);
       srcMap[key] = val > 0 ? String(Math.floor(val)) : '';
     });
 
-
-    // Update grab: col D (idx 3) → set col E (idx 4) & F (idx 5)
     let updated = 0, zeroed = 0, pendingHit = 0;
     const pendingSet = new Set(pendingSkus.map(p => normalizeKey(p.sku)));
     const newGrabRows = grabRows.map((row, idx) => {
@@ -1052,12 +1048,10 @@ async function runAll() {
       const key = normalizeKey(row[3]);
       const r   = [...row];
       if (pendingSet.has(key)) {
-        r[4] = ''; r[5] = '';
-        r[15] = 'out-of-stock indefinitely';
+        r[4] = ''; r[5] = ''; r[15] = 'out-of-stock indefinitely';
         const entry = pendingSkus.find(p => normalizeKey(p.sku) === key);
         if (entry && !entry.name && row[2]) entry.name = row[2].trim();
-        pendingHit++;
-        return r;
+        pendingHit++; return r;
       }
       if (Object.prototype.hasOwnProperty.call(srcMap, key)) {
         const v = srcMap[key];
@@ -1066,18 +1060,14 @@ async function runAll() {
         updated++; if (v === '') zeroed++;
         return r;
       }
-      const rr = [...row];
-      rr[4] = ''; rr[5] = '';
-      rr[15] = 'out-of-stock indefinitely';
-      return rr;
+      r[4] = ''; r[5] = ''; r[15] = 'out-of-stock indefinitely';
+      return r;
     });
 
     if (pendingHit) {
       log('warn', '  [PENDING] ' + pendingHit + ' SKUs → cleared & out-of-stock indefinitely');
-      renderPendingList();
-      savePendingSkus();
+      renderPendingList(); savePendingSkus();
     }
-
     log('ok', '  UPDATED ' + updated + ' ROWS');
     if (zeroed) log('warn', '  ' + zeroed + ' ROWS → EMPTY (≤ 0)');
     tot += updated;
@@ -1092,7 +1082,6 @@ async function runAll() {
   log('dim','═'.repeat(40));
   log('ok', 'DONE · PROCESSED:' + done + ' · UPDATED:' + tot + ' · SKIPPED:' + skip);
   flashLogStatus('DONE','ok');
-
   if (done > 0) {
     document.getElementById('btn-download-all').classList.remove('hidden');
     log('info', '⬇ กด DOWNLOAD ALL เพื่อดาวน์โหลดไฟล์ทั้งหมด (' + done + ' FILES)');
@@ -1112,8 +1101,8 @@ function downloadAll() {
 function log(type, msg) {
   const p = document.getElementById('log-panel');
   const d = document.createElement('div');
-  d.className   = 'log-line log-'+type;
-  d.textContent = '['+new Date().toTimeString().slice(0,8)+'] '+msg;
+  d.className   = 'log-line log-' + type;
+  d.textContent = '[' + new Date().toTimeString().slice(0,8) + '] ' + msg;
   p.appendChild(d); p.scrollTop = p.scrollHeight;
 }
 function clearLog() {
@@ -1124,7 +1113,7 @@ function clearLog() {
 }
 function flashLogStatus(txt, type) {
   const e = document.getElementById('log-status');
-  e.className = 'badge badge-'+type; e.textContent = txt;
+  e.className = 'badge badge-' + type; e.textContent = txt;
 }
 
 // ════════════════════════════════════
@@ -1143,26 +1132,19 @@ async function loadPendingSkus() {
 
 async function savePendingSkus() {
   if (!window._sbSavePendingSkus) return;
-  try {
-    await window._sbSavePendingSkus(pendingSkus);
-  } catch(e) {
-    log('err', '[PENDING] SAVE ERROR: ' + e.message);
-  }
+  try { await window._sbSavePendingSkus(pendingSkus); }
+  catch(e) { log('err', '[PENDING] SAVE ERROR: ' + e.message); }
 }
 
 async function addPendingSku() {
   const input = document.getElementById('pending-sku-input');
   const sku   = (input.value || '').trim().toUpperCase();
   if (!sku) return;
-  if (pendingSkus.some(p => p.sku === sku)) {
-    log('warn', '[PENDING] ' + sku + ' มีอยู่แล้ว');
-    return;
-  }
+  if (pendingSkus.some(p => p.sku === sku)) { log('warn', '[PENDING] ' + sku + ' มีอยู่แล้ว'); return; }
   const entry = { sku, name: '' };
   pendingSkus.push(entry);
   input.value = '';
-  renderPendingList();
-  savePendingSkus();
+  renderPendingList(); savePendingSkus();
   log('ok', '[PENDING] ADDED: ' + sku + ' · กำลังค้นหาชื่อ...');
 
   if (window._sbGetCSVText && grabFilesList.length) {
@@ -1173,8 +1155,7 @@ async function addPendingSku() {
         const found = rows.find((r, i) => i >= 3 && (r[3] || '').trim().toUpperCase() === sku);
         if (found && found[2]) {
           entry.name = found[2].trim();
-          renderPendingList();
-          savePendingSkus();
+          renderPendingList(); savePendingSkus();
           log('ok', '[PENDING] ' + sku + ' → ' + entry.name);
           return;
         }
@@ -1186,8 +1167,7 @@ async function addPendingSku() {
 
 function removePendingSku(sku) {
   pendingSkus = pendingSkus.filter(p => p.sku !== sku);
-  renderPendingList();
-  savePendingSkus();
+  renderPendingList(); savePendingSkus();
   log('ok', '[PENDING] REMOVED: ' + sku);
 }
 
@@ -1206,7 +1186,10 @@ function renderPendingList() {
       <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;color:var(--text-dim)">${p.name ? esc(p.name) : '—'}</td>
       <td style="padding:6px 10px;text-align:center">
-        <button onclick="window.removePendingSku('${esc(p.sku)}')" style="font-family:var(--font);font-size:7px;padding:3px 8px;background:#ffe0e8;border:1px solid #dd8899;color:#cc2244;cursor:pointer">DELETE</button>
+        <button onclick="window.removePendingSku('${esc(p.sku)}')"
+          style="font-family:var(--font);font-size:7px;padding:3px 8px;background:#ffe0e8;border:1px solid #dd8899;color:#cc2244;cursor:pointer">
+          DELETE
+        </button>
       </td>
     </tr>`).join('');
   el.innerHTML = `<table style="width:100%;border-collapse:collapse">
@@ -1225,13 +1208,13 @@ function toggleGrabManager() {
   const body  = document.getElementById('grab-manager-body');
   const arrow = document.getElementById('grab-manager-arrow');
   const isHidden = body.style.display === 'none';
-  body.style.display  = isHidden ? '' : 'none';
-  arrow.textContent   = isHidden ? '▲' : '▼';
+  body.style.display = isHidden ? '' : 'none';
+  arrow.textContent  = isHidden ? '▲' : '▼';
 }
 
 // ── expose globals ──
 Object.assign(window, {
-  openConfig, saveConfig,
+  openConfig, saveConfig, clearConfig,
   openUnlock, checkPassword, lockNow, closeModal,
   triggerSrcLoad, loadSourceFiles, clearSourceFiles,
   toggleGrabManager,
