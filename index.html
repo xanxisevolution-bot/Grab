@@ -446,7 +446,7 @@
     • SKU จะบันทึกค้างไว้ในระบบตลอดจนกว่าจะลบออก
   </div>
   <div class="btn-row" style="margin-bottom:14px;gap:8px">
-    <input type="text" id="pending-sku-input" placeholder="กรอก SKU..." onkeydown="if(event.key==='Enter')window.addPendingSku()" style="font-family:var(--font-th);font-size:13px;padding:8px 10px;border:2px solid var(--input-border);background:var(--input-bg);color:var(--text);flex:1;min-width:0">
+    <textarea id="pending-sku-input" placeholder="กรอก SKU... (paste หลายรายการได้ แต่ละ SKU ขึ้นบรรทัดใหม่ หรือคั่นด้วย ,)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.addPendingSku()}" style="font-family:var(--font-th);font-size:13px;padding:8px 10px;border:2px solid var(--input-border);background:var(--input-bg);color:var(--text);flex:1;min-width:0;resize:vertical;height:60px;line-height:1.8"></textarea>
     <button class="btn btn-green" onclick="window.addPendingSku()">+ ADD</button>
   </div>
   <div id="pending-list" style="min-height:32px"></div>
@@ -1159,30 +1159,58 @@ async function savePendingSkus() {
 
 async function addPendingSku() {
   const input = document.getElementById('pending-sku-input');
-  const sku   = (input.value || '').trim().toUpperCase();
-  if (!sku) return;
-  if (pendingSkus.some(p => p.sku === sku)) { log('warn', '[PENDING] ' + sku + ' มีอยู่แล้ว'); return; }
-  const entry = { sku, name: '' };
-  pendingSkus.push(entry);
+  const raw   = (input.value || '').trim();
+  if (!raw) return;
+
+  // แยก SKU ด้วย newline, comma, semicolon, tab, pipe
+  const skuList = raw
+    .split(/[\n\r,;|\t]+/)
+    .map(s => s.trim().toUpperCase())
+    .filter(s => s.length > 0);
+
+  if (!skuList.length) return;
+
+  const newEntries = [];
+  let dupCount = 0;
+
+  for (const sku of skuList) {
+    if (pendingSkus.some(p => p.sku === sku)) { dupCount++; continue; }
+    const entry = { sku, name: '' };
+    pendingSkus.push(entry);
+    newEntries.push(entry);
+  }
+
   input.value = '';
   renderPendingList(); savePendingSkus();
-  log('ok', '[PENDING] ADDED: ' + sku + ' · กำลังค้นหาชื่อ...');
 
+  if (dupCount)       log('warn', '[PENDING] ' + dupCount + ' SKU ซ้ำ — ข้ามไป');
+  if (!newEntries.length) return;
+  log('ok', '[PENDING] ADDED ' + newEntries.length + ' SKUs · กำลังค้นหาชื่อ...');
+
+  // ค้นหาชื่อสินค้าจาก GRAB files (โหลดแต่ละไฟล์ครั้งเดียว)
   if (window._sbGetCSVText && grabFilesList.length) {
+    const remaining = new Set(newEntries.map(e => e.sku));
     for (const f of grabFilesList) {
+      if (!remaining.size) break;
       try {
         const text = await window._sbGetCSVText(f.name);
         const rows = parseCSV(text);
-        const found = rows.find((r, i) => i >= 3 && (r[3] || '').trim().toUpperCase() === sku);
-        if (found && found[2]) {
-          entry.name = found[2].trim();
-          renderPendingList(); savePendingSkus();
-          log('ok', '[PENDING] ' + sku + ' → ' + entry.name);
-          return;
+        for (const row of rows.slice(3)) {
+          const key = (row[3] || '').trim().toUpperCase();
+          if (!remaining.has(key)) continue;
+          const entry = newEntries.find(e => e.sku === key);
+          if (entry && row[2]) {
+            entry.name = row[2].trim();
+            remaining.delete(key);
+            log('ok', '[PENDING] ' + key + ' → ' + entry.name);
+          }
         }
       } catch(e) { /* skip */ }
     }
-    log('warn', '[PENDING] ' + sku + ' · ไม่พบชื่อใน GRAB files');
+    if (remaining.size) {
+      log('warn', '[PENDING] ' + remaining.size + ' SKU · ไม่พบชื่อใน GRAB files: ' + [...remaining].join(', '));
+    }
+    renderPendingList(); savePendingSkus();
   }
 }
 
