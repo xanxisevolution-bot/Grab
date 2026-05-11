@@ -1345,11 +1345,19 @@ function setPendingListTab(br) {
   renderPendingList();
 }
 
-function initPendingListTabDelegate() {
+function initPendingListDelegate() {
   const el = document.getElementById('pending-list');
-  if (!el || el.dataset.pendTabDelegate === '1') return;
-  el.dataset.pendTabDelegate = '1';
+  if (!el || el.dataset.pendListDelegate === '1') return;
+  el.dataset.pendListDelegate = '1';
   el.addEventListener('click', function(ev) {
+    const delBtn = ev.target.closest('.pending-del-btn');
+    if (delBtn) {
+      ev.preventDefault();
+      const sku = delBtn.getAttribute('data-sku');
+      const branch = delBtn.getAttribute('data-branch') || '';
+      if (sku) removePendingSku(sku, branch);
+      return;
+    }
     const tab = ev.target.closest('.pending-tab');
     if (!tab) return;
     ev.preventDefault();
@@ -1404,7 +1412,7 @@ function renderPendingList() {
       <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;color:var(--text-dim)">${p.name ? esc(p.name) : '—'}</td>
       <td style="padding:6px 10px;text-align:center">
-        <button type="button" onclick="window.removePendingSku(${JSON.stringify(p.sku)}, ${JSON.stringify(br)})"
+        <button type="button" class="pending-del-btn" data-sku="${esc(p.sku)}" data-branch="${esc(br)}"
           style="font-family:var(--font);font-size:7px;padding:3px 8px;background:#ffe0e8;border:1px solid #dd8899;color:#cc2244;cursor:pointer">
           DELETE
         </button>
@@ -1454,7 +1462,7 @@ Object.assign(window, {
 });
 
 // ── init ──
-initPendingListTabDelegate();
+initPendingListDelegate();
 updateLockUI();
 renderPendingList();
 </script>
