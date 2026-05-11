@@ -265,13 +265,16 @@
   .th-text { font-family:var(--font-th); font-size:12px; }
 
   /* ── PENDING SKU: branch tabs ── */
-  .pending-tabs-wrap { margin-top: 4px; }
+  /* แถวแท็บต้องอยู่เหนือแผงตาราง (z-index) ไม่ให้ชั้นล่างทับแล้วกดไม่ติด */
+  .pending-tabs-wrap { margin-top: 4px; position: relative; }
   .pending-tabs-row {
     display: flex; flex-wrap: wrap; gap: 4px;
     margin-bottom: 0;
     border-bottom: 2px solid var(--input-border);
     padding-bottom: 0;
     align-items: flex-end;
+    position: relative;
+    z-index: 2;
   }
   .pending-tab {
     font-family: var(--font-th);
@@ -286,6 +289,8 @@
     border-radius: 4px 4px 0 0;
     margin-bottom: -2px;
     line-height: 1.2;
+    position: relative;
+    pointer-events: auto;
   }
   .pending-tab:hover { color: var(--text); background: var(--tr-even); }
   .pending-tab.active {
@@ -293,8 +298,7 @@
     border-color: var(--input-border);
     border-bottom-color: var(--panel);
     background: var(--panel);
-    position: relative;
-    z-index: 1;
+    z-index: 3;
   }
   .pending-tab-count { font-weight: 600; color: var(--text-dim); margin-left: 4px; }
   .pending-tab.active .pending-tab-count { color: var(--accent2); }
@@ -306,6 +310,8 @@
     padding-left: 10px;
     padding-right: 10px;
     padding-bottom: 10px;
+    position: relative;
+    z-index: 1;
   }
 
   @media (max-width:768px) {
@@ -1339,6 +1345,20 @@ function setPendingListTab(br) {
   renderPendingList();
 }
 
+function initPendingListTabDelegate() {
+  const el = document.getElementById('pending-list');
+  if (!el || el.dataset.pendTabDelegate === '1') return;
+  el.dataset.pendTabDelegate = '1';
+  el.addEventListener('click', function(ev) {
+    const tab = ev.target.closest('.pending-tab');
+    if (!tab) return;
+    ev.preventDefault();
+    const code = tab.getAttribute('data-branch');
+    if (!code) return;
+    setPendingListTab(code);
+  });
+}
+
 function ensurePendingListTab() {
   if (!pendingSkus.length) return;
   const countFor = b => pendingSkus.filter(p => entryBranches(p).includes(b)).length;
@@ -1361,16 +1381,24 @@ function renderPendingList() {
   const br = pendingListActiveTab;
   const items = pendingSkus.filter(p => entryBranches(p).includes(br));
 
+  const countFor = code => pendingSkus.filter(p => entryBranches(p).includes(code)).length;
   const tabButtons = PENDING_BRANCH_CODES.map(code => {
-    const n = pendingSkus.filter(p => entryBranches(p).includes(code)).length;
+    const n = countFor(code);
     const active = code === br ? ' active' : '';
-    return `<button type="button" class="pending-tab${active}" onclick="window.setPendingListTab(${JSON.stringify(code)})">${esc(code)}<span class="pending-tab-count">(${n})</span></button>`;
+    return `<button type="button" role="tab" class="pending-tab${active}" data-branch="${esc(code)}" aria-selected="${code === br ? 'true' : 'false'}">${esc(code)}<span class="pending-tab-count">(${n})</span></button>`;
   }).join('');
+
+  const counts = PENDING_BRANCH_CODES.map(countFor);
+  const allTabsSameCount = counts.length && counts.every(c => c === counts[0]) && counts[0] > 0;
+  const sameListEveryBranch = allTabsSameCount && items.length === pendingSkus.length;
 
   let panelInner;
   if (!items.length) {
     panelInner = '<p style="font-family:var(--font-th);font-size:13px;color:var(--text-dim);margin:8px 0 4px">ไม่มี SKU ในสาขานี้</p>';
   } else {
+    const hintSame = sameListEveryBranch
+      ? '<p style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.65">รายการชุดนี้เหมือนกันทุกแท็บ เพราะแต่ละ SKU ถูกตั้ง pending <strong>ครบทุกสาขา</strong> — ตอน ADD ให้ติ๊กเฉพาะสาขาที่ต้องการ แท็บจึงจะแสดงคนละชุด</p>'
+      : '';
     const rows = items.map(p => `
     <tr>
       <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
@@ -1382,7 +1410,12 @@ function renderPendingList() {
         </button>
       </td>
     </tr>`).join('');
-    panelInner = `<table style="width:100%;border-collapse:collapse">
+    panelInner = `
+    <div style="font-family:var(--font-th);font-size:12px;font-weight:700;color:var(--text);margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--input-border)">
+      กำลังแสดง: สาขา <span style="color:var(--info)">${esc(br)}</span> · ${items.length} รายการ
+    </div>
+    ${hintSame}
+    <table style="width:100%;border-collapse:collapse">
         <thead>
           <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
             <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">SKU</th>
@@ -1396,8 +1429,8 @@ function renderPendingList() {
 
   el.innerHTML = `
   <div class="pending-tabs-wrap">
-    <div class="pending-tabs-row">${tabButtons}</div>
-    <div class="pending-tab-panel">${panelInner}</div>
+    <div class="pending-tabs-row" role="tablist">${tabButtons}</div>
+    <div class="pending-tab-panel" role="tabpanel">${panelInner}</div>
   </div>`;
 }
 
@@ -1421,6 +1454,7 @@ Object.assign(window, {
 });
 
 // ── init ──
+initPendingListTabDelegate();
 updateLockUI();
 renderPendingList();
 </script>
