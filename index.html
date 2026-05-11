@@ -442,8 +442,16 @@
   </div>
   <div class="th-text" style="color:var(--text);font-weight:700;margin-bottom:14px;line-height:2.2">
     • เมื่อมีการแก้ไขราคา/ชื่อสินค้า/รูปภาพสินค้า ต้องยื่น FORM ให้เจ้าที่ GRAB MART ตรวจสอบ ใช้เวลา 3-5 วัน<BR>
-    • ระบุ SKU ที่รอการแก้ไข (SKU นี้จะไม่ถูกนำขึ้น GRABMART) <BR>
+    • ระบุ SKU ที่รอการแก้ไข (SKU นี้จะไม่ถูกนำขึ้น GRABMART) <strong>เฉพาะสาขาที่เลือก</strong> <BR>
     • SKU จะบันทึกค้างไว้ในระบบตลอดจนกว่าจะลบออก
+  </div>
+  <div class="btn-row" style="margin-bottom:10px;flex-wrap:wrap;align-items:center;gap:10px 14px">
+    <span style="font-family:var(--font-th);font-size:12px;font-weight:700;color:var(--text)">สาขา (ตอน ADD):</span>
+    <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="SRC" checked style="vertical-align:middle;margin-right:4px">SRC</label>
+    <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="SSS" checked style="vertical-align:middle;margin-right:4px">SSS</label>
+    <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="KKL" checked style="vertical-align:middle;margin-right:4px">KKL</label>
+    <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="WRD" checked style="vertical-align:middle;margin-right:4px">WRD</label>
+    <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="ONN" checked style="vertical-align:middle;margin-right:4px">ONN</label>
   </div>
   <div class="btn-row" style="margin-bottom:14px;gap:8px">
     <textarea id="pending-sku-input" placeholder="กรอก SKU... (paste หลายรายการได้ แต่ละ SKU ขึ้นบรรทัดใหม่ หรือคั่นด้วย ,)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.addPendingSku()}" style="font-family:var(--font-th);font-size:13px;padding:8px 10px;border:2px solid var(--input-border);background:var(--input-bg);color:var(--text);flex:1;min-width:0;resize:vertical;height:60px;line-height:1.8"></textarea>
@@ -610,6 +618,33 @@ let grabFilesList    = [];
 let sourceFilesCache = {};
 let processedOutputs = {};
 let pendingSkus      = [];
+
+const PENDING_BRANCH_CODES = ['SRC', 'SSS', 'KKL', 'WRD', 'ONN'];
+
+function entryBranches(p) {
+  const raw = p && p.branches;
+  if (!Array.isArray(raw) || !raw.length) return PENDING_BRANCH_CODES.slice();
+  const out = [];
+  const seen = new Set();
+  for (const b of raw) {
+    const u = String(b || '').toUpperCase();
+    if (!PENDING_BRANCH_CODES.includes(u) || seen.has(u)) continue;
+    seen.add(u); out.push(u);
+  }
+  return out.length ? out : PENDING_BRANCH_CODES.slice();
+}
+
+function isPendingActiveForBranch(p, base) {
+  const bUpper = String(base || '').toUpperCase();
+  if (!PENDING_BRANCH_CODES.includes(bUpper)) return true;
+  return entryBranches(p).includes(bUpper);
+}
+
+function selectedPendingBranchesFromUI() {
+  return Array.from(document.querySelectorAll('.pend-branch-cb:checked'))
+    .map(cb => String(cb.value || '').toUpperCase())
+    .filter(b => PENDING_BRANCH_CODES.includes(b));
+}
 
 // ════════════════════════════════════
 //  SUPABASE INIT CALLBACK
@@ -1063,14 +1098,15 @@ async function runAll() {
     });
 
     let updated = 0, zeroed = 0, pendingHit = 0;
-    const pendingSet = new Set(pendingSkus.map(p => normalizeKey(p.sku)));
+    const pendingForBranch = pendingSkus.filter(p => isPendingActiveForBranch(p, base));
+    const pendingSet = new Set(pendingForBranch.map(p => normalizeKey(p.sku)));
     const newGrabRows = grabRows.map((row, idx) => {
       if (idx < 3) return row;
       const key = normalizeKey(row[3]);
       const r   = [...row];
       if (pendingSet.has(key)) {
         r[4] = ''; r[5] = ''; r[15] = 'out-of-stock indefinitely';
-        const entry = pendingSkus.find(p => normalizeKey(p.sku) === key);
+        const entry = pendingForBranch.find(p => normalizeKey(p.sku) === key);
         if (entry && !entry.name && row[2]) entry.name = row[2].trim();
         pendingHit++; return r;
       }
@@ -1143,7 +1179,14 @@ function flashLogStatus(txt, type) {
 async function loadPendingSkus() {
   if (!window._sbLoadPendingSkus) return;
   try {
-    pendingSkus = await window._sbLoadPendingSkus();
+    const raw = await window._sbLoadPendingSkus();
+    pendingSkus = (raw || []).map(p => {
+      let brs = Array.isArray(p.branches) && p.branches.length
+        ? [...new Set(p.branches.map(b => String(b || '').toUpperCase()).filter(b => PENDING_BRANCH_CODES.includes(b)))]
+        : [];
+      if (!brs.length) brs = PENDING_BRANCH_CODES.slice();
+      return { sku: String(p.sku || '').toUpperCase(), name: p.name || '', branches: brs };
+    }).filter(p => p.sku);
     renderPendingList();
     log('ok', '[PENDING] LOADED · ' + pendingSkus.length + ' SKUs');
   } catch(e) {
@@ -1162,6 +1205,12 @@ async function addPendingSku() {
   const raw   = (input.value || '').trim();
   if (!raw) return;
 
+  const selectedBranches = selectedPendingBranchesFromUI();
+  if (!selectedBranches.length) {
+    log('warn', '[PENDING] เลือกสาขาอย่างน้อย 1 สาขา');
+    return;
+  }
+
   // แยก SKU ด้วย newline, comma, semicolon, tab, pipe
   const skuList = raw
     .split(/[\n\r,;|\t]+/)
@@ -1171,11 +1220,17 @@ async function addPendingSku() {
   if (!skuList.length) return;
 
   const newEntries = [];
-  let dupCount = 0;
+  let merged = 0;
 
   for (const sku of skuList) {
-    if (pendingSkus.some(p => p.sku === sku)) { dupCount++; continue; }
-    const entry = { sku, name: '' };
+    const existing = pendingSkus.find(p => p.sku === sku);
+    if (existing) {
+      const combined = new Set([...entryBranches(existing), ...selectedBranches]);
+      existing.branches = PENDING_BRANCH_CODES.filter(b => combined.has(b));
+      merged++;
+      continue;
+    }
+    const entry = { sku, name: '', branches: selectedBranches.slice() };
     pendingSkus.push(entry);
     newEntries.push(entry);
   }
@@ -1183,7 +1238,7 @@ async function addPendingSku() {
   input.value = '';
   renderPendingList(); savePendingSkus();
 
-  if (dupCount)       log('warn', '[PENDING] ' + dupCount + ' SKU ซ้ำ — ข้ามไป');
+  if (merged) log('info', '[PENDING] รวมสาขาให้ SKU ที่มีอยู่แล้ว: ' + merged + ' รายการ');
   if (!newEntries.length) return;
   log('ok', '[PENDING] ADDED ' + newEntries.length + ' SKUs · กำลังค้นหาชื่อ...');
 
@@ -1214,10 +1269,23 @@ async function addPendingSku() {
   }
 }
 
-function removePendingSku(sku) {
-  pendingSkus = pendingSkus.filter(p => p.sku !== sku);
+function removePendingSku(sku, branch) {
+  const key = String(sku || '').toUpperCase();
+  const br  = branch != null && branch !== '' ? String(branch).toUpperCase() : '';
+  if (!br || !PENDING_BRANCH_CODES.includes(br)) {
+    pendingSkus = pendingSkus.filter(p => p.sku !== key);
+    renderPendingList(); savePendingSkus();
+    log('ok', '[PENDING] REMOVED: ' + key);
+    return;
+  }
+  pendingSkus = pendingSkus.flatMap(p => {
+    if (p.sku !== key) return [p];
+    const next = entryBranches(p).filter(b => b !== br);
+    if (!next.length) return [];
+    return [{ ...p, branches: next }];
+  });
   renderPendingList(); savePendingSkus();
-  log('ok', '[PENDING] REMOVED: ' + sku);
+  log('ok', '[PENDING] ลบ ' + key + ' ออกจากสาขา ' + br);
 }
 
 function renderPendingList() {
@@ -1230,27 +1298,39 @@ function renderPendingList() {
     el.innerHTML = '<span style="font-family:var(--font-th);font-size:13px;color:var(--text-dim)">ยังไม่มี SKU...</span>';
     return;
   }
-  const rows = pendingSkus.map(p => `
+  const parts = [];
+  for (const br of PENDING_BRANCH_CODES) {
+    const items = pendingSkus.filter(p => entryBranches(p).includes(br));
+    if (!items.length) continue;
+    const rows = items.map(p => `
     <tr>
       <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;color:var(--text-dim)">${p.name ? esc(p.name) : '—'}</td>
       <td style="padding:6px 10px;text-align:center">
-        <button onclick="window.removePendingSku('${esc(p.sku)}')"
+        <button type="button" onclick="window.removePendingSku(${JSON.stringify(p.sku)}, ${JSON.stringify(br)})"
           style="font-family:var(--font);font-size:7px;padding:3px 8px;background:#ffe0e8;border:1px solid #dd8899;color:#cc2244;cursor:pointer">
           DELETE
         </button>
       </td>
     </tr>`).join('');
-  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
-    <thead>
-      <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
-        <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">SKU</th>
-        <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">ITEM NAME</th>
-        <th style="padding:6px 10px;font-family:var(--font);font-size:7px"></th>
-      </tr>
-    </thead>
-    <tbody style="border:1px solid #ddd">${rows}</tbody>
-  </table>`;
+    parts.push(`
+    <div style="margin-top:14px">
+      <div style="font-family:var(--font-th);font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;border-bottom:2px solid var(--input-border);padding-bottom:4px">
+        สาขา ${esc(br)} <span style="font-weight:600;color:var(--text-dim)">(${items.length})</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
+            <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">SKU</th>
+            <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">ITEM NAME</th>
+            <th style="padding:6px 10px;font-family:var(--font);font-size:7px"></th>
+          </tr>
+        </thead>
+        <tbody style="border:1px solid #ddd">${rows}</tbody>
+      </table>
+    </div>`);
+  }
+  el.innerHTML = parts.join('') || '<span style="font-family:var(--font-th);font-size:13px;color:var(--text-dim)">ยังไม่มี SKU...</span>';
 }
 
 function toggleGrabManager() {
