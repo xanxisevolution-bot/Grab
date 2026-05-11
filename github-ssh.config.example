@@ -1,0 +1,8 @@
+# คัดลอกเนื้อหานี้ไปวางใน:  C:\Users\<ชื่อผู้ใช้>\.ssh\config
+# (หรือเปลี่ยน IdentityFile เป็นพาธเต็มถ้าคีย์อยู่ที่อื่น)
+
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes

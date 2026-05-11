@@ -264,6 +264,50 @@
   .footer { text-align:center; font-size:8px; color:var(--text-dim); margin-top:24px; letter-spacing:2px; line-height:2.5; }
   .th-text { font-family:var(--font-th); font-size:12px; }
 
+  /* ── PENDING SKU: branch tabs ── */
+  .pending-tabs-wrap { margin-top: 4px; }
+  .pending-tabs-row {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-bottom: 0;
+    border-bottom: 2px solid var(--input-border);
+    padding-bottom: 0;
+    align-items: flex-end;
+  }
+  .pending-tab {
+    font-family: var(--font-th);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-dim);
+    padding: 8px 12px 6px;
+    border: 2px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+    margin-bottom: -2px;
+    line-height: 1.2;
+  }
+  .pending-tab:hover { color: var(--text); background: var(--tr-even); }
+  .pending-tab.active {
+    color: var(--text);
+    border-color: var(--input-border);
+    border-bottom-color: var(--panel);
+    background: var(--panel);
+    position: relative;
+    z-index: 1;
+  }
+  .pending-tab-count { font-weight: 600; color: var(--text-dim); margin-left: 4px; }
+  .pending-tab.active .pending-tab-count { color: var(--accent2); }
+  .pending-tab-panel {
+    padding-top: 10px;
+    border: 2px solid var(--input-border);
+    border-top: none;
+    background: var(--panel);
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-bottom: 10px;
+  }
+
   @media (max-width:768px) {
     body { padding:10px; }
     .controls-grid { grid-template-columns:1fr 1fr; }
@@ -618,6 +662,7 @@ let grabFilesList    = [];
 let sourceFilesCache = {};
 let processedOutputs = {};
 let pendingSkus      = [];
+let pendingListActiveTab = 'SRC';
 
 const PENDING_BRANCH_CODES = ['SRC', 'SSS', 'KKL', 'WRD', 'ONN'];
 
@@ -1288,6 +1333,20 @@ function removePendingSku(sku, branch) {
   log('ok', '[PENDING] ลบ ' + key + ' ออกจากสาขา ' + br);
 }
 
+function setPendingListTab(br) {
+  const u = String(br || '').toUpperCase();
+  pendingListActiveTab = PENDING_BRANCH_CODES.includes(u) ? u : 'SRC';
+  renderPendingList();
+}
+
+function ensurePendingListTab() {
+  if (!pendingSkus.length) return;
+  const countFor = b => pendingSkus.filter(p => entryBranches(p).includes(b)).length;
+  if (countFor(pendingListActiveTab) > 0) return;
+  const first = PENDING_BRANCH_CODES.find(b => countFor(b) > 0);
+  if (first) pendingListActiveTab = first;
+}
+
 function renderPendingList() {
   const el    = document.getElementById('pending-list');
   const badge = document.getElementById('pending-badge');
@@ -1298,10 +1357,20 @@ function renderPendingList() {
     el.innerHTML = '<span style="font-family:var(--font-th);font-size:13px;color:var(--text-dim)">ยังไม่มี SKU...</span>';
     return;
   }
-  const parts = [];
-  for (const br of PENDING_BRANCH_CODES) {
-    const items = pendingSkus.filter(p => entryBranches(p).includes(br));
-    if (!items.length) continue;
+  ensurePendingListTab();
+  const br = pendingListActiveTab;
+  const items = pendingSkus.filter(p => entryBranches(p).includes(br));
+
+  const tabButtons = PENDING_BRANCH_CODES.map(code => {
+    const n = pendingSkus.filter(p => entryBranches(p).includes(code)).length;
+    const active = code === br ? ' active' : '';
+    return `<button type="button" class="pending-tab${active}" onclick="window.setPendingListTab(${JSON.stringify(code)})">${esc(code)}<span class="pending-tab-count">(${n})</span></button>`;
+  }).join('');
+
+  let panelInner;
+  if (!items.length) {
+    panelInner = '<p style="font-family:var(--font-th);font-size:13px;color:var(--text-dim);margin:8px 0 4px">ไม่มี SKU ในสาขานี้</p>';
+  } else {
     const rows = items.map(p => `
     <tr>
       <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
@@ -1313,12 +1382,7 @@ function renderPendingList() {
         </button>
       </td>
     </tr>`).join('');
-    parts.push(`
-    <div style="margin-top:14px">
-      <div style="font-family:var(--font-th);font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;border-bottom:2px solid var(--input-border);padding-bottom:4px">
-        สาขา ${esc(br)} <span style="font-weight:600;color:var(--text-dim)">(${items.length})</span>
-      </div>
-      <table style="width:100%;border-collapse:collapse">
+    panelInner = `<table style="width:100%;border-collapse:collapse">
         <thead>
           <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
             <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">SKU</th>
@@ -1327,10 +1391,14 @@ function renderPendingList() {
           </tr>
         </thead>
         <tbody style="border:1px solid #ddd">${rows}</tbody>
-      </table>
-    </div>`);
+      </table>`;
   }
-  el.innerHTML = parts.join('') || '<span style="font-family:var(--font-th);font-size:13px;color:var(--text-dim)">ยังไม่มี SKU...</span>';
+
+  el.innerHTML = `
+  <div class="pending-tabs-wrap">
+    <div class="pending-tabs-row">${tabButtons}</div>
+    <div class="pending-tab-panel">${panelInner}</div>
+  </div>`;
 }
 
 function toggleGrabManager() {
@@ -1348,7 +1416,7 @@ Object.assign(window, {
   triggerSrcLoad, loadSourceFiles, clearSourceFiles,
   toggleGrabManager,
   triggerUpload, uploadCSVFiles,
-  addPendingSku, removePendingSku,
+  addPendingSku, removePendingSku, setPendingListTab,
   runAll, validateAll, downloadAll, clearLog
 });
 
