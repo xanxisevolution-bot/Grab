@@ -314,6 +314,25 @@
     z-index: 1;
   }
 
+  /* ── PENDING: ราคาไม่ตรงกัน (GRAB vs DATABASE) ── */
+  .price-diff-row { background: #fff0f3 !important; }
+  .price-diff-cell {
+    color: #cc2244; font-weight: 700;
+    background: #ffe0e8;
+    box-shadow: inset 0 0 0 2px #dd4466;  /* กรอบ pixel โดยไม่ดัน layout */
+  }
+  .price-diff-flag {
+    display: inline-block; margin-left: 6px;
+    font-family: var(--font); font-size: 6px; letter-spacing: 1px;
+    color: #cc2244; vertical-align: middle;
+  }
+  .price-same-cell { color: #226633; }
+  .pending-mismatch-note {
+    font-family: var(--font-th); font-size: 12px; font-weight: 700;
+    color: #cc2244; background: #fff0f3; border: 2px solid #dd4466;
+    padding: 6px 10px; margin: 0 0 10px; line-height: 1.7;
+  }
+
   @media (max-width:768px) {
     body { padding:10px; }
     .controls-grid { grid-template-columns:1fr 1fr; }
@@ -373,6 +392,23 @@
     <div style="text-align:left;margin-bottom:10px">
       <label style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">ANON PUBLIC KEY</label>
       <input class="config-input" type="text" id="cfg-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+    </div>
+    <div style="border-top:2px dashed var(--input-border);margin:16px 0 12px;padding-top:12px;text-align:left">
+      <div style="font-family:var(--font-th);font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px">
+        DATABASE (โปรเจคที่ 2) — ไม่บังคับ
+      </div>
+      <div style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.8">
+        ใช้ดึงราคาอ้างอิงจากตาราง <strong>products</strong> มาเทียบกับราคาของ GRAB<br>
+        เว้นว่างได้ — ระบบหลักทำงานปกติ
+      </div>
+    </div>
+    <div style="text-align:left;margin-bottom:10px">
+      <label style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">DATABASE PROJECT URL</label>
+      <input class="config-input" type="text" id="cfg-db2-url" placeholder="https://xxxxxxxxxxxx.supabase.co">
+    </div>
+    <div style="text-align:left;margin-bottom:10px">
+      <label style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">DATABASE ANON PUBLIC KEY</label>
+      <input class="config-input" type="text" id="cfg-db2-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
     </div>
     <div id="cfg-err" style="font-family:var(--font-th);font-size:11px;color:var(--danger);min-height:18px;margin-bottom:10px"></div>
     <div class="modal-btn-row">
@@ -508,9 +544,10 @@
     <button class="btn btn-green" onclick="window.addPendingSku()">+ ADD</button>
   </div>
   <div class="btn-row" style="margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap">
-    <button class="btn btn-info" onclick="window.refreshPendingPrices()">฿ REFRESH PRICE</button>
+    <button class="btn btn-info" onclick="window.refreshAllPrices()">฿ REFRESH PRICE</button>
+    <span id="db2-status-chip" class="badge badge-info" style="font-size:6px">DB: —</span>
     <span style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.7">
-      ดึงราคาจากไฟล์ .CSV ของ GRAB (คอลัมน์ C) จับคู่กับ SKU (คอลัมน์ I)
+      ราคา = ไฟล์ .CSV ของ GRAB (คอลัมน์ C · จับคู่ SKU คอลัมน์ I) · DATABASE = ตาราง products (โปรเจคที่ 2)
     </span>
   </div>
   <div id="pending-list" style="min-height:32px"></div>
@@ -588,10 +625,12 @@ function _sbGetConfig() {
     const m = hash.match(/[#&]cfg=([^&]*)/);
     if (m && m[1]) {
       const obj = _hashDecode(m[1]);
-      if (obj && obj.url && obj.key) return obj;
+      // spread ทีหลัง → ค่าจริงจาก hash ชนะ default
+      // bookmark เก่าที่มีแค่ {url,key} จะได้ db2Url/db2Key เป็น '' → DATABASE ไม่ init (ระบบหลักทำงานปกติ)
+      if (obj && obj.url && obj.key) return { db2Url: '', db2Key: '', ...obj };
     }
   } catch(e) { /* ignore */ }
-  return { url: '', key: '' };
+  return { url: '', key: '', db2Url: '', db2Key: '' };
 }
 
 async function _sbInitSupabase() {
@@ -659,9 +698,124 @@ async function _sbInitSupabase() {
 
 window._sbInit = _sbInitSupabase;
 
+// ════════════════════════════════════
+//  SUPABASE #2 — DATABASE ราคาอ้างอิง (ตาราง products)
+//  แยก client เด็ดขาดจากตัวหลัก: ตัวนี้ล้มเหลวต้องไม่กระทบระบบหลัก
+// ════════════════════════════════════
+window._db2Ready = false;
+window._db2Err   = '';
+window._db2Cols  = null;   // { sku: '<ชื่อคอลัมน์จริง>', price: '<ชื่อคอลัมน์จริง>' }
+
+const DB2_TABLE = 'products';
+// ชื่อคอลัมน์จริงมีอักขระประกอบ เช่น "*ราคาสินค้า" และ "รหัสสินค้า (SKU NUMBER)"
+// จึงจับคู่แบบ "มีคำนี้อยู่ในชื่อ" ไม่ใช่เทียบตรงตัว
+const DB2_SKU_NAMES   = ['รหัสสินค้า','sku','item_code','barcode','product_code'];
+const DB2_PRICE_NAMES = ['ราคาสินค้า','ราคาขาย','ราคา','price'];
+// คอลัมน์ที่ต้องไม่ถูกเลือกเป็นราคาหลัก (ราคาแยกรายสาขา)
+const DB2_PRICE_EXCLUDE = ['src_price','kkl_price','sss_price','promaxx_price'];
+
+// normalize แบบเดียวกับ normalizeKey ในสคริปต์หลัก (ทำซ้ำเพื่อไม่ผูก scope ข้ามสคริปต์)
+function _db2Norm(s) {
+  return String(s == null ? '' : s)
+    .replace(/^\uFEFF/, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\r/g, '')
+    .trim().toUpperCase();
+}
+
+async function _db2Init() {
+  window._db2Ready = false;
+  window._db2Err   = '';
+  window._db2Cols  = null;
+  window._db2Client = null;
+  window._db2FetchPrices = null;
+
+  const cfg = _sbGetConfig();
+  const url = cfg.db2Url || '', key = cfg.db2Key || '';
+  if (!url || !key) {
+    window._db2Err = 'ยังไม่ได้ตั้งค่า DATABASE (โปรเจคที่ 2)';
+    if (window._onDb2Ready) window._onDb2Ready(false, '');
+    return;
+  }
+
+  try {
+    const db2 = supabase.createClient(url, key);
+
+    // ── AUTO-DETECT ชื่อคอลัมน์จากแถวแรก ──
+    const probe = await db2.from(DB2_TABLE).select('*').limit(1);
+    if (probe.error) throw new Error('ตาราง ' + DB2_TABLE + ': ' + probe.error.message);
+
+    const sample = (probe.data && probe.data[0]) || null;
+    if (!sample) {
+      throw new Error('อ่านตาราง ' + DB2_TABLE + ' ไม่ได้ข้อมูล — อาจเป็นเพราะ RLS ไม่อนุญาตให้ anon อ่าน หรือตารางว่างจริง');
+    }
+
+    const keys = Object.keys(sample);
+    // จับคู่แบบ "ชื่อคอลัมน์มีคำนี้อยู่" — รองรับ "*ราคาสินค้า", "รหัสสินค้า (SKU NUMBER)"
+    const pick = function(cands, exclude) {
+      const ex = (exclude || []).map(x => x.toLowerCase());
+      const usable = keys.filter(k => !ex.includes(k.toLowerCase()));
+      for (const c of cands) {
+        const lc = c.toLowerCase();
+        const hit = usable.find(k => k.toLowerCase().indexOf(lc) >= 0);
+        if (hit) return hit;
+      }
+      return undefined;
+    };
+    const skuCol   = pick(DB2_SKU_NAMES);
+    const priceCol = pick(DB2_PRICE_NAMES, DB2_PRICE_EXCLUDE);
+    if (!skuCol || !priceCol) {
+      throw new Error('หาคอลัมน์ไม่เจอ (ต้องมีคอลัมน์ SKU และราคา) · คอลัมน์ที่มีจริง: ' + keys.join(', '));
+    }
+
+    window._db2Client = db2;
+    window._db2Cols   = { sku: skuCol, price: priceCol };
+    window._db2Ready  = true;
+
+    // ดึงราคาทั้งตาราง — คืน map { SKU_NORMALIZED: <ราคาดิบ> }
+    // หมายเหตุ: คอลัมน์ชื่อภาษาไทยของตารางนี้ใช้ใน select/filter ของ PostgREST ไม่ได้ (HTTP 500)
+    // จึงต้อง select('*') แล้วกรองฝั่ง client — และต้องแบ่งหน้าเพราะ PostgREST
+    // ตัดผลลัพธ์ที่ 1000 แถวโดยไม่แจ้ง error
+    window._db2FetchPrices = async function() {
+      const cols = window._db2Cols;
+      const out  = {};
+      const PAGE = 1000;
+      const MAX_PAGES = 20;   // กันวนไม่รู้จบ (รองรับ 20,000 แถว)
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const from = page * PAGE;
+        const res = await db2.from(DB2_TABLE).select('*').range(from, from + PAGE - 1);
+        if (res.error) throw new Error(res.error.message);
+        const rows = res.data || [];
+        for (const r of rows) {
+          const k = _db2Norm(r[cols.sku]);
+          if (!k) continue;
+          const v = r[cols.price];
+          if (v == null || v === '') continue;
+          out[k] = v;   // เก็บค่าดิบ — ให้ชั้นบน format
+        }
+        if (rows.length < PAGE) break;   // หน้าสุดท้าย
+      }
+      return out;
+    };
+
+    if (window._onDb2Ready) window._onDb2Ready(true);
+
+  } catch(e) {
+    window._db2Ready = false;
+    window._db2Err   = e.message || String(e);
+    window._db2Client = null;
+    window._db2FetchPrices = null;
+    window._db2Cols = null;
+    if (window._onDb2Ready) window._onDb2Ready(false, window._db2Err);
+  }
+}
+window._db2Init = _db2Init;
+
 document.addEventListener('DOMContentLoaded', async function() {
   // อ่าน config จาก URL hash แล้ว init อัตโนมัติ
   await _sbInitSupabase();
+  await _db2Init();   // แยกจากตัวหลัก — ล้มเหลวได้โดยไม่กระทบกัน
 });
 </script>
 
@@ -683,6 +837,9 @@ const GRAB_SKU_IDX   = 8;  // column I = SKU
 
 // ราคาที่ดึงจากไฟล์ .CSV ของ GRAB — key = SKU (normalized), value = ราคาเป็นข้อความ
 let pendingPriceMap  = {};
+
+// ราคาจาก DATABASE (Supabase โปรเจคที่ 2 · ตาราง products) — key = SKU (normalized)
+let dbPriceMap       = {};
 
 const PENDING_BRANCH_CODES = ['SRC', 'SSS', 'KKL', 'WRD', 'ONN'];
 
@@ -720,6 +877,19 @@ window._onSbReady = async (ok, msg) => {
     // ต้องโหลดรายชื่อไฟล์ GRAB ให้เสร็จก่อน — ราคาใน PENDING อ่านจากไฟล์เหล่านี้
     await refreshGrabList();
     await loadPendingSkus();
+  }
+};
+
+// callback ของ DATABASE (โปรเจคที่ 2) — แยกจากระบบหลัก
+window._onDb2Ready = async (ok, msg) => {
+  setDb2Status(ok, msg);
+  if (ok) {
+    const c = window._db2Cols;
+    log('ok', '[DB] DATABASE พร้อม · คอลัมน์: ' + (c ? c.sku + ' / ' + c.price : '?'));
+    // เรียกทั้งที่นี่และท้าย loadPendingSkus — ทางไหนมาทีหลังก็ได้ผล (idempotent)
+    if (pendingSkus.length) await refreshDbPrices({ silent: true });
+  } else if (msg) {
+    log('warn', '[DB] ' + msg);
   }
 };
 
@@ -779,6 +949,26 @@ async function setDbStatus(ok, msg) {
   ts.textContent = new Date().toTimeString().slice(0,8);
 }
 
+// สถานะ DATABASE (โปรเจคที่ 2) — chip เล็กข้างปุ่ม REFRESH PRICE
+// ไม่แตะ status bar ด้านบนซึ่งเป็นของโปรเจคหลัก
+function setDb2Status(ok, msg) {
+  const chip = document.getElementById('db2-status-chip');
+  if (!chip) return;
+  const cfg = _sbGetConfig();
+  if (!cfg.db2Url) {
+    chip.className   = 'badge badge-info';
+    chip.textContent = 'DB: OFF';
+    chip.title       = 'ยังไม่ได้ตั้งค่า DATABASE (โปรเจคที่ 2) — กด ⚙ CONFIG';
+    return;
+  }
+  const projId = cfg.db2Url.replace('https://','').split('.')[0];
+  chip.className   = ok ? 'badge badge-ok' : 'badge badge-err';
+  chip.textContent = ok ? 'DB: ' + projId : 'DB: ERR';
+  chip.title       = ok
+    ? ('คอลัมน์: ' + (window._db2Cols ? window._db2Cols.sku + ' / ' + window._db2Cols.price : ''))
+    : (msg || window._db2Err || '');
+}
+
 // ════════════════════════════════════
 //  CONFIG MODAL
 // ════════════════════════════════════
@@ -788,6 +978,8 @@ async function openConfig() {
 
   document.getElementById('cfg-url').value = cfg.url || '';
   document.getElementById('cfg-key').value = cfg.key || '';
+  document.getElementById('cfg-db2-url').value = cfg.db2Url || '';
+  document.getElementById('cfg-db2-key').value = cfg.db2Key || '';
   document.getElementById('cfg-err').textContent = '';
 
   // แสดง notice และปุ่ม CLEAR ถ้ามี config บันทึกไว้
@@ -802,31 +994,48 @@ async function openConfig() {
 async function saveConfig() {
   const url = document.getElementById('cfg-url').value.trim();
   const key = document.getElementById('cfg-key').value.trim();
+  const db2Url = document.getElementById('cfg-db2-url').value.trim();
+  const db2Key = document.getElementById('cfg-db2-key').value.trim();
   const err = document.getElementById('cfg-err');
   if (!url || !url.startsWith('https://')) { err.textContent = '✕ URL ต้องขึ้นต้นด้วย https://'; return; }
   if (!key || key.length < 30)             { err.textContent = '✕ Anon Key ไม่ถูกต้อง'; return; }
 
+  // DATABASE (โปรเจคที่ 2) ไม่บังคับ — validate เฉพาะเมื่อกรอก
+  if (db2Url && !db2Url.startsWith('https://')) { err.textContent = '✕ DATABASE URL ต้องขึ้นต้นด้วย https://'; return; }
+  if (db2Url && (!db2Key || db2Key.length < 30)) { err.textContent = '✕ DATABASE Anon Key ไม่ถูกต้อง'; return; }
+  if (db2Key && !db2Url)                         { err.textContent = '✕ ใส่ DATABASE URL ด้วย'; return; }
+
   // บันทึกลง URL hash — ไม่ส่งไป server, ไม่อยู่ในโค้ด
-  _sbSaveHash({ url, key });
+  // ต้องส่ง db2 ไปด้วยทุกครั้ง ไม่งั้นจะถูกทิ้งเมื่อกด SAVE
+  _sbSaveHash({ url, key, db2Url, db2Key });
 
   closeModal('modal-config');
   log('info', '[CFG] Config saved to URL hash · reconnecting...');
   log('info', '[CFG] ★ Bookmark URL นี้เพื่อใช้งานครั้งหน้าโดยไม่ต้องกรอกใหม่');
   setDbStatus(false, 'reconnecting...');
   await window._sbInit();
+  await window._db2Init();
 }
 
 async function clearConfig() {
   history.replaceState(null, '', location.pathname + location.search);
   document.getElementById('cfg-url').value = '';
   document.getElementById('cfg-key').value = '';
+  document.getElementById('cfg-db2-url').value = '';
+  document.getElementById('cfg-db2-key').value = '';
   const notice = document.getElementById('cfg-saved-notice');
   const btnClear = document.getElementById('btn-cfg-clear');
   if (notice)   notice.style.display   = 'none';
   if (btnClear) btnClear.style.display = 'none';
   closeModal('modal-config');
   window._sbReady = false;
+  // เคลียร์ state ของ DATABASE (โปรเจคที่ 2) ด้วย
+  window._db2Ready = false; window._db2Client = null;
+  window._db2FetchPrices = null; window._db2Cols = null;
+  dbPriceMap = {};
   setDbStatus(false, 'Config cleared — กด ⚙ CONFIG เพื่อตั้งค่าใหม่');
+  setDb2Status(false, 'cleared');
+  renderPendingList();
   log('warn', '[CFG] Config cleared · URL hash removed');
 }
 
@@ -1251,6 +1460,24 @@ function formatPrice(raw) {
   return n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// แปลงราคาเป็นตัวเลข — รับได้ทั้งค่าดิบจาก DB และข้อความที่ format แล้ว
+function priceToNumber(v) {
+  if (v == null) return null;
+  const s = String(v).replace(/[,\s฿]/g, '').trim();
+  if (!s) return null;
+  const n = parseFloat(s);
+  return isFinite(n) ? n : null;
+}
+
+// เทียบราคา 2 ฝั่ง → 'same' | 'diff' | 'na'
+// เทียบเป็นตัวเลขปัดที่สตางค์ ไม่เทียบ string (Postgres numeric ส่งมาเป็น string เช่น "45.0000")
+// 'na' = ฝั่งใดฝั่งหนึ่งไม่มีราคา → ไม่ตัดสิน และต้องไม่ไฮไลต์
+function comparePrice(a, b) {
+  const x = priceToNumber(a), y = priceToNumber(b);
+  if (x === null || y === null) return 'na';
+  return Math.round(x * 100) === Math.round(y * 100) ? 'same' : 'diff';
+}
+
 // อ่านราคาจาก rows ของไฟล์ GRAB แล้วเก็บลง map (ข้าม 3 บรรทัดแรกเหมือน logic เดิม)
 function collectPricesFromRows(rows, map) {
   let found = 0;
@@ -1288,6 +1515,56 @@ async function refreshPendingPrices(opts) {
   }
 }
 
+// ── ราคาจาก DATABASE (โปรเจคที่ 2 · ตาราง products) ──
+function countPriceMismatch() {
+  let n = 0;
+  for (const p of pendingSkus) {
+    const k = normalizeKey(p.sku);
+    if (comparePrice(pendingPriceMap[k], dbPriceMap[k]) === 'diff') n++;
+  }
+  return n;
+}
+
+async function refreshDbPrices(opts) {
+  const silent = !!(opts && opts.silent === true);
+  if (!window._db2Ready || !window._db2FetchPrices) {
+    dbPriceMap = {};
+    if (!silent) log('warn', '[DB] ยังไม่ได้เชื่อมต่อ DATABASE — ' + (window._db2Err || 'กด ⚙ CONFIG'));
+    renderPendingList();
+    return;
+  }
+  if (!pendingSkus.length) { dbPriceMap = {}; renderPendingList(); return; }
+  try {
+    // ดึงทั้งตารางแล้วเก็บเฉพาะ SKU ที่อยู่ในรายการ pending
+    const raw  = await window._db2FetchPrices();
+    const want = new Set(pendingSkus.map(p => normalizeKey(p.sku)));
+    const map  = {};
+    for (const k in raw) {
+      if (!want.has(k)) continue;
+      const f = formatPrice(raw[k]);
+      if (f !== '') map[k] = f;
+    }
+    dbPriceMap = map;
+    renderPendingList();
+    if (!silent) {
+      const hit  = pendingSkus.filter(p => dbPriceMap[normalizeKey(p.sku)] !== undefined).length;
+      const diff = countPriceMismatch();
+      log('ok', '[DB] พบราคาใน DATABASE ' + hit + '/' + pendingSkus.length
+              + (diff ? ' · ⚠ ไม่ตรงกัน ' + diff + ' รายการ' : ' · ราคาตรงกันทั้งหมด'));
+    }
+  } catch(e) {
+    dbPriceMap = {};
+    renderPendingList();
+    log('err', '[DB] ' + e.message);
+  }
+}
+
+// รันตามลำดับ ไม่ใช่ Promise.all — การนับ mismatch ต้องใช้ pendingPriceMap ที่อัปเดตแล้ว
+async function refreshAllPrices() {
+  await refreshPendingPrices();
+  await refreshDbPrices();
+}
+
 async function loadPendingSkus() {
   if (!window._sbLoadPendingSkus) return;
   try {
@@ -1301,7 +1578,10 @@ async function loadPendingSkus() {
     }).filter(p => p.sku);
     renderPendingList();
     log('ok', '[PENDING] LOADED · ' + pendingSkus.length + ' SKUs');
-    if (pendingSkus.length) refreshPendingPrices({ silent: true });
+    if (pendingSkus.length) {
+      refreshPendingPrices({ silent: true });
+      refreshDbPrices({ silent: true });
+    }
   } catch(e) {
     log('err', '[PENDING] LOAD ERROR: ' + e.message);
   }
@@ -1382,6 +1662,9 @@ async function addPendingSku() {
     }
     renderPendingList(); savePendingSkus();
   }
+
+  // ดึงราคาจาก DATABASE ให้ SKU ที่เพิ่งเพิ่ม (ทำนอกบล็อกด้านบน — ไม่ขึ้นกับไฟล์ GRAB)
+  await refreshDbPrices({ silent: true });
 }
 
 function removePendingSku(sku, branch) {
@@ -1471,16 +1754,43 @@ function renderPendingList() {
     const hintSame = sameListEveryBranch
       ? '<p style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.65">รายการชุดนี้เหมือนกันทุกแท็บ เพราะแต่ละ SKU ถูกตั้ง pending <strong>ครบทุกสาขา</strong> — ตอน ADD ให้ติ๊กเฉพาะสาขาที่ต้องการ แท็บจึงจะแสดงคนละชุด</p>'
       : '';
+    // นับเฉพาะรายการในแท็บที่แสดงอยู่
+    const diffCount = items.filter(p => {
+      const kk = normalizeKey(p.sku);
+      return comparePrice(pendingPriceMap[kk], dbPriceMap[kk]) === 'diff';
+    }).length;
+    const mismatchNote = diffCount
+      ? `<p class="pending-mismatch-note">⚠ ราคาไม่ตรงกับ DATABASE ${diffCount} รายการ (แถวสีแดง) — ต้องยื่น FORM แก้ไขราคากับ GRAB</p>`
+      : '';
     const rows = items.map(p => {
-      const price = pendingPriceMap[normalizeKey(p.sku)];
+      const k     = normalizeKey(p.sku);
+      const price = pendingPriceMap[k];
+      const dbP   = dbPriceMap[k];
+      const cmp   = comparePrice(price, dbP);
+      const isDiff = cmp === 'diff';
+
       const priceCell = price !== undefined && price !== ''
         ? `<span style="color:var(--text)">${esc(price)}</span>`
         : '<span style="color:var(--text-dim)">—</span>';
+
+      // · = ยังไม่ได้เชื่อมต่อ DATABASE / — = เชื่อมต่อแล้วแต่ไม่พบ SKU นี้
+      let dbCell;
+      if (dbP !== undefined && dbP !== '') {
+        const cls = isDiff ? 'price-diff-cell' : (cmp === 'same' ? 'price-same-cell' : '');
+        dbCell = `<span class="${cls}" style="padding:2px 6px">${esc(dbP)}</span>`
+               + (isDiff ? '<span class="price-diff-flag">≠</span>' : '');
+      } else if (!window._db2Ready) {
+        dbCell = '<span style="color:var(--text-dim)" title="ยังไม่ได้เชื่อมต่อ DATABASE">·</span>';
+      } else {
+        dbCell = '<span style="color:var(--text-dim)">—</span>';
+      }
+
       return `
-    <tr>
+    <tr class="${isDiff ? 'price-diff-row' : ''}">
       <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;color:var(--text-dim)">${p.name ? esc(p.name) : '—'}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;text-align:right;white-space:nowrap">${priceCell}</td>
+      <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;text-align:right;white-space:nowrap">${dbCell}</td>
       <td style="padding:6px 10px;text-align:center">
         <button type="button" class="pending-del-btn" data-sku="${esc(p.sku)}" data-branch="${esc(br)}"
           style="font-family:var(--font);font-size:7px;padding:3px 8px;background:#ffe0e8;border:1px solid #dd8899;color:#cc2244;cursor:pointer">
@@ -1494,12 +1804,14 @@ function renderPendingList() {
       กำลังแสดง: สาขา <span style="color:var(--info)">${esc(br)}</span> · ${items.length} รายการ
     </div>
     ${hintSame}
+    ${mismatchNote}
     <table style="width:100%;border-collapse:collapse">
         <thead>
           <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
             <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">SKU</th>
             <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">ITEM NAME</th>
             <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">ราคา</th>
+            <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">DATABASE</th>
             <th style="padding:6px 10px;font-family:var(--font);font-size:7px"></th>
           </tr>
         </thead>
@@ -1529,7 +1841,8 @@ Object.assign(window, {
   triggerSrcLoad, loadSourceFiles, clearSourceFiles,
   toggleGrabManager,
   triggerUpload, uploadCSVFiles,
-  addPendingSku, removePendingSku, setPendingListTab, refreshPendingPrices,
+  addPendingSku, removePendingSku, setPendingListTab,
+  refreshPendingPrices, refreshDbPrices, refreshAllPrices,
   runAll, validateAll, downloadAll, clearLog
 });
 
@@ -1537,6 +1850,7 @@ Object.assign(window, {
 initPendingListDelegate();
 updateLockUI();
 renderPendingList();
+setDb2Status(false, '');
 </script>
 </body>
 </html>
