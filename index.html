@@ -550,6 +550,16 @@
       ราคา = ไฟล์ .CSV ของ GRAB (คอลัมน์ C · จับคู่ SKU คอลัมน์ I) · DATABASE = ตาราง products (โปรเจคที่ 2)
     </span>
   </div>
+  <div class="btn-row" style="margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-yellow" onclick="window.triggerPromaxLoad()">📤 UPLOAD PROMAX</button>
+    <button class="btn btn-dim" onclick="window.clearPromax()">✕ CLEAR</button>
+    <span id="promax-status" class="badge badge-info" style="font-size:6px">NO FILE</span>
+    <input type="file" id="promax-file-input" accept=".csv" style="display:none"
+           onchange="window.loadPromaxFile(this.files)">
+    <span style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.7">
+      PROMAX = ไฟล์ .CSV ที่อัปโหลด · เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU คอลัมน์ B · ราคาคอลัมน์ F
+    </span>
+  </div>
   <div id="pending-list" style="min-height:32px"></div>
 </div>
 
@@ -840,6 +850,16 @@ let pendingPriceMap  = {};
 
 // ราคาจาก DATABASE (Supabase โปรเจคที่ 2 · ตาราง products) — key = SKU (normalized)
 let dbPriceMap       = {};
+
+// ── โครงคอลัมน์ของไฟล์ PROMAX (อัปโหลดแยก · header 1 แถว) ──
+const PROMAX_SKU_IDX    = 1;   // column B = SKU
+const PROMAX_FILTER_IDX = 4;   // column E = ตัวกรอง (เอาเฉพาะค่า 5)
+const PROMAX_PRICE_IDX  = 5;   // column F = ราคา
+const PROMAX_FILTER_VAL = '5';
+
+// ราคาจากไฟล์ PROMAX — key = SKU (normalized)
+let promaxPriceMap   = {};
+let promaxFileName   = '';
 
 const PENDING_BRANCH_CODES = ['SRC', 'SSS', 'KKL', 'WRD', 'ONN'];
 
@@ -1492,6 +1512,80 @@ function collectPricesFromRows(rows, map) {
   return found;
 }
 
+// ── PROMAX: อ่านราคาจากไฟล์ที่อัปโหลด (header 1 แถว) ──
+// เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU จากคอลัมน์ B · ราคาจากคอลัมน์ F
+function collectPromaxFromRows(rows) {
+  const map = {};
+  let matched = 0, skipped = 0, noPrice = 0;
+  for (const row of rows.slice(1)) {
+    if (!row || !row.length) continue;
+    const flt = String(row[PROMAX_FILTER_IDX] == null ? '' : row[PROMAX_FILTER_IDX]).trim();
+    if (flt !== PROMAX_FILTER_VAL) { if (flt !== '') skipped++; continue; }
+    const key = normalizeKey(row[PROMAX_SKU_IDX]);
+    if (!key) continue;
+    const price = formatPrice(row[PROMAX_PRICE_IDX]);
+    if (price === '') { noPrice++; continue; }
+    map[key] = price;
+    matched++;
+  }
+  return { map, matched, skipped, noPrice };
+}
+
+function triggerPromaxLoad() {
+  document.getElementById('promax-file-input').click();
+}
+
+async function loadPromaxFile(files) {
+  const input = document.getElementById('promax-file-input');
+  if (!files || !files.length) return;
+  const file = files[0];
+  const badge = document.getElementById('promax-status');
+  if (badge) { badge.className = 'badge badge-warn'; badge.textContent = 'LOADING...'; }
+  try {
+    let text;
+    const buf = await file.arrayBuffer();
+    try {
+      text = new TextDecoder('utf-8').decode(buf);
+      if (/\uFFFD/.test(text)) {
+        text = new TextDecoder('windows-874').decode(buf);
+        log('warn', '[PROMAX] ตรวจพบ TIS-620/Windows-874 encoding');
+      }
+    } catch(e) {
+      text = new TextDecoder('windows-874').decode(buf);
+    }
+    const rows = parseCSV(text);
+    if (rows.length < 2) throw new Error('ไฟล์ว่างหรือ parse ไม่ได้');
+
+    const res = collectPromaxFromRows(rows);
+    if (!res.matched) {
+      throw new Error('ไม่พบแถวที่คอลัมน์ E = ' + PROMAX_FILTER_VAL + ' (อ่านได้ ' + (rows.length - 1) + ' แถว) — ตรวจสอบว่าเป็นไฟล์ถูกต้องหรือไม่');
+    }
+
+    promaxPriceMap = res.map;
+    promaxFileName = file.name.toUpperCase();
+    if (badge) { badge.className = 'badge badge-ok'; badge.textContent = res.matched + ' PRICES'; }
+    log('ok', '[PROMAX] ✔ ' + promaxFileName + ' · ใช้ได้ ' + res.matched + ' SKU'
+            + (res.skipped ? ' · ข้าม (E≠' + PROMAX_FILTER_VAL + ') ' + res.skipped : '')
+            + (res.noPrice ? ' · ไม่มีราคา ' + res.noPrice : ''));
+    const hit = pendingSkus.filter(p => promaxPriceMap[normalizeKey(p.sku)] !== undefined).length;
+    log('info', '[PROMAX] จับคู่กับตาราง ' + hit + '/' + pendingSkus.length + ' รายการ');
+    renderPendingList();
+  } catch(e) {
+    if (badge) { badge.className = 'badge badge-err'; badge.textContent = 'ERROR'; }
+    log('err', '[PROMAX] ✕ ' + file.name.toUpperCase() + ' · ' + e.message);
+  }
+  if (input) input.value = '';
+}
+
+function clearPromax() {
+  promaxPriceMap = {};
+  promaxFileName = '';
+  const badge = document.getElementById('promax-status');
+  if (badge) { badge.className = 'badge badge-info'; badge.textContent = 'NO FILE'; }
+  renderPendingList();
+  log('warn', '[PROMAX] CLEARED');
+}
+
 async function refreshPendingPrices(opts) {
   const silent = !!(opts && opts.silent === true);
   if (!window._sbGetCSVText || !grabFilesList.length) {
@@ -1754,24 +1848,48 @@ function renderPendingList() {
     const hintSame = sameListEveryBranch
       ? '<p style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);margin:0 0 10px;line-height:1.65">รายการชุดนี้เหมือนกันทุกแท็บ เพราะแต่ละ SKU ถูกตั้ง pending <strong>ครบทุกสาขา</strong> — ตอน ADD ให้ติ๊กเฉพาะสาขาที่ต้องการ แท็บจึงจะแสดงคนละชุด</p>'
       : '';
-    // นับเฉพาะรายการในแท็บที่แสดงอยู่
-    const diffCount = items.filter(p => {
+    // นับเฉพาะรายการในแท็บที่แสดงอยู่ (แยกนับแต่ละแหล่ง)
+    let diffDb = 0, diffPm = 0, diffAny = 0;
+    items.forEach(p => {
       const kk = normalizeKey(p.sku);
-      return comparePrice(pendingPriceMap[kk], dbPriceMap[kk]) === 'diff';
-    }).length;
-    const mismatchNote = diffCount
-      ? `<p class="pending-mismatch-note">⚠ ราคาไม่ตรงกับ DATABASE ${diffCount} รายการ (แถวสีแดง) — ต้องยื่น FORM แก้ไขราคากับ GRAB</p>`
+      const a = comparePrice(pendingPriceMap[kk], dbPriceMap[kk]) === 'diff';
+      const b = comparePrice(pendingPriceMap[kk], promaxPriceMap[kk]) === 'diff';
+      if (a) diffDb++;
+      if (b) diffPm++;
+      if (a || b) diffAny++;
+    });
+    const parts = [];
+    if (diffDb) parts.push('DATABASE ' + diffDb + ' รายการ');
+    if (diffPm) parts.push('PROMAX ' + diffPm + ' รายการ');
+    const mismatchNote = diffAny
+      ? `<p class="pending-mismatch-note">⚠ ราคาไม่ตรงกับ ${parts.join(' · ')} (แถวสีแดง) — ต้องยื่น FORM แก้ไขราคากับ GRAB</p>`
       : '';
     const rows = items.map(p => {
       const k     = normalizeKey(p.sku);
       const price = pendingPriceMap[k];
       const dbP   = dbPriceMap[k];
+      const pmP   = promaxPriceMap[k];
       const cmp   = comparePrice(price, dbP);
-      const isDiff = cmp === 'diff';
+      const cmpPm = comparePrice(price, pmP);
+      const isDiff   = cmp === 'diff';
+      const isDiffPm = cmpPm === 'diff';
+      const rowDiff  = isDiff || isDiffPm;
 
       const priceCell = price !== undefined && price !== ''
         ? `<span style="color:var(--text)">${esc(price)}</span>`
         : '<span style="color:var(--text-dim)">—</span>';
+
+      // PROMAX: · = ยังไม่ได้อัปโหลดไฟล์ / — = อัปโหลดแล้วแต่ไม่พบ SKU นี้
+      let pmCell;
+      if (pmP !== undefined && pmP !== '') {
+        const clsPm = isDiffPm ? 'price-diff-cell' : (cmpPm === 'same' ? 'price-same-cell' : '');
+        pmCell = `<span class="${clsPm}" style="padding:2px 6px">${esc(pmP)}</span>`
+               + (isDiffPm ? '<span class="price-diff-flag">≠</span>' : '');
+      } else if (!promaxFileName) {
+        pmCell = '<span style="color:var(--text-dim)" title="ยังไม่ได้อัปโหลดไฟล์ PROMAX">·</span>';
+      } else {
+        pmCell = '<span style="color:var(--text-dim)">—</span>';
+      }
 
       // · = ยังไม่ได้เชื่อมต่อ DATABASE / — = เชื่อมต่อแล้วแต่ไม่พบ SKU นี้
       let dbCell;
@@ -1786,11 +1904,12 @@ function renderPendingList() {
       }
 
       return `
-    <tr class="${isDiff ? 'price-diff-row' : ''}">
+    <tr class="${rowDiff ? 'price-diff-row' : ''}">
       <td style="padding:6px 10px;font-family:var(--font);font-size:9px">${esc(p.sku)}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;color:var(--text-dim)">${p.name ? esc(p.name) : '—'}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;text-align:right;white-space:nowrap">${priceCell}</td>
       <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;text-align:right;white-space:nowrap">${dbCell}</td>
+      <td style="padding:6px 10px;font-family:var(--font-th);font-size:13px;text-align:right;white-space:nowrap">${pmCell}</td>
       <td style="padding:6px 10px;text-align:center">
         <button type="button" class="pending-del-btn" data-sku="${esc(p.sku)}" data-branch="${esc(br)}"
           style="font-family:var(--font);font-size:7px;padding:3px 8px;background:#ffe0e8;border:1px solid #dd8899;color:#cc2244;cursor:pointer">
@@ -1812,6 +1931,7 @@ function renderPendingList() {
             <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">ITEM NAME</th>
             <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">ราคา</th>
             <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">DATABASE</th>
+            <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">PROMAX</th>
             <th style="padding:6px 10px;font-family:var(--font);font-size:7px"></th>
           </tr>
         </thead>
@@ -1843,6 +1963,7 @@ Object.assign(window, {
   triggerUpload, uploadCSVFiles,
   addPendingSku, removePendingSku, setPendingListTab,
   refreshPendingPrices, refreshDbPrices, refreshAllPrices,
+  triggerPromaxLoad, loadPromaxFile, clearPromax,
   runAll, validateAll, downloadAll, clearLog
 });
 
