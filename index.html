@@ -549,13 +549,13 @@
     </span>
   </div>
   <div class="btn-row" style="margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap">
-    <button class="btn btn-yellow" onclick="window.triggerPromaxLoad()">📤 UPLOAD PROMAX</button>
+    <button class="btn btn-yellow" onclick="window.triggerPromaxLoad()">📤 UPLOAD R05.103</button>
     <button class="btn btn-dim" onclick="window.clearPromax()">✕ CLEAR</button>
     <span id="promax-status" class="badge badge-info" style="font-size:6px">NO FILE</span>
     <input type="file" id="promax-file-input" accept=".csv" style="display:none"
            onchange="window.loadPromaxFile(this.files)">
     <span style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.7">
-      PROMAX = ไฟล์ .CSV ที่อัปโหลด · เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU คอลัมน์ B · ราคาคอลัมน์ G
+      PROMAX = ไฟล์ .CSV จาก REPORT R05.103 · เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU คอลัมน์ B · ราคาคอลัมน์ G
     </span>
   </div>
   <div id="pending-list" style="min-height:32px"></div>
@@ -843,8 +843,9 @@ const GRAB_NAME_IDX  = 1;  // column B = ชื่อสินค้า
 const GRAB_PRICE_IDX = 2;  // column C = ราคา
 const GRAB_SKU_IDX   = 8;  // column I = SKU
 
-// ราคาที่ดึงจากไฟล์ .CSV ของ GRAB — key = SKU (normalized), value = ราคาเป็นข้อความ
-let pendingPriceMap  = {};
+// ราคาที่ดึงจากไฟล์ .CSV ของ GRAB — แยกตามสาขา { SAKHA: { SKU: ราคา } }
+// ต้องแยกสาขา เพราะ SKU เดียวกันอาจตั้งราคาต่างกันในแต่ละสาขา
+let pendingPriceBySrc = {};
 
 // ราคาจาก DATABASE (Supabase โปรเจคที่ 2 · ตาราง products) — key = SKU (normalized)
 let dbPriceMap       = {};
@@ -1505,6 +1506,21 @@ function comparePrice(a, b) {
   return Math.round(x * 100) === Math.round(y * 100) ? 'same' : 'diff';
 }
 
+// GRAB_KKL.CSV → KKL (ตัดคำนำหน้า GRAB_ และนามสกุลออก)
+function grabFileBranch(fileName) {
+  return String(fileName || '').toUpperCase()
+    .replace(/\.CSV$/i, '')
+    .replace(/^GRAB_/, '')
+    .trim();
+}
+
+// ราคา GRAB ของ SKU ในสาขาที่ระบุ — undefined ถ้าไม่มีไฟล์สาขานั้นหรือไม่พบ SKU
+function grabPriceFor(sku, branch) {
+  const m = pendingPriceBySrc[String(branch || '').toUpperCase()];
+  if (!m) return undefined;
+  return m[normalizeKey(sku)];
+}
+
 // อ่านราคาจาก rows ของไฟล์ GRAB แล้วเก็บลง map (ข้าม 3 บรรทัดแรกเหมือน logic เดิม)
 function collectPricesFromRows(rows, map) {
   let found = 0;
@@ -1599,20 +1615,24 @@ async function refreshPendingPrices(opts) {
     if (!silent) log('warn', '[PRICE] ยังไม่มีไฟล์ GRAB บน Supabase — ไม่สามารถดึงราคาได้');
     return;
   }
-  const map = {};
-  let filesOk = 0;
+  const bySrc = {};
+  let filesOk = 0, total = 0;
   for (const f of grabFilesList) {
     try {
       const rows = parseCSV(await window._sbGetCSVText(f.name));
+      // GRAB_KKL.CSV → KKL · เก็บแยกสาขา ไม่ให้ไฟล์ที่อ่านทีหลังเขียนทับ
+      const br = grabFileBranch(f.name);
+      const map = bySrc[br] || (bySrc[br] = {});
       collectPricesFromRows(rows, map);
+      total += Object.keys(map).length;
       filesOk++;
     } catch(e) { /* skip ไฟล์ที่อ่านไม่ได้ */ }
   }
-  pendingPriceMap = map;
+  pendingPriceBySrc = bySrc;
   renderPendingList();
   if (!silent) {
-    const hit = pendingSkus.filter(p => pendingPriceMap[normalizeKey(p.sku)] !== undefined).length;
-    log('ok', '[PRICE] อ่าน ' + filesOk + ' ไฟล์ · พบราคา ' + Object.keys(map).length + ' SKU · จับคู่ในตาราง ' + hit + '/' + pendingSkus.length);
+    const hit = pendingSkus.filter(p => grabPriceFor(p.sku, pendingListActiveTab) !== undefined).length;
+    log('ok', '[PRICE] อ่าน ' + filesOk + ' ไฟล์ · พบราคารวม ' + total + ' รายการ · จับคู่ในแท็บ ' + pendingListActiveTab + ' ' + hit + '/' + pendingSkus.length);
   }
 }
 
@@ -1621,7 +1641,7 @@ function countPriceMismatch() {
   let n = 0;
   for (const p of pendingSkus) {
     const k = normalizeKey(p.sku);
-    if (comparePrice(pendingPriceMap[k], dbPriceMap[k]) === 'diff') n++;
+    if (comparePrice(grabPriceFor(p.sku, pendingListActiveTab), dbPriceMap[k]) === 'diff') n++;
   }
   return n;
 }
@@ -1660,7 +1680,7 @@ async function refreshDbPrices(opts) {
   }
 }
 
-// รันตามลำดับ ไม่ใช่ Promise.all — การนับ mismatch ต้องใช้ pendingPriceMap ที่อัปเดตแล้ว
+// รันตามลำดับ ไม่ใช่ Promise.all — การนับ mismatch ต้องใช้ราคา GRAB ที่อัปเดตแล้ว
 async function refreshAllPrices() {
   await refreshPendingPrices();
   await refreshDbPrices();
@@ -1744,8 +1764,9 @@ async function addPendingSku() {
       try {
         const text = await window._sbGetCSVText(f.name);
         const rows = parseCSV(text);
-        // เก็บราคาจากไฟล์เดียวกันไปด้วย (col C = ราคา, col I = SKU)
-        collectPricesFromRows(rows, pendingPriceMap);
+        // เก็บราคาจากไฟล์เดียวกันไปด้วย (col C = ราคา, col I = SKU) แยกตามสาขา
+        const br = grabFileBranch(f.name);
+        collectPricesFromRows(rows, pendingPriceBySrc[br] || (pendingPriceBySrc[br] = {}));
         if (!remaining.size) continue;
         for (const row of rows.slice(3)) {
           const key = normalizeKey(row[GRAB_SKU_IDX]);
@@ -1860,8 +1881,9 @@ function renderPendingList() {
     let diffDb = 0, diffPm = 0, diffAny = 0;
     items.forEach(p => {
       const kk = normalizeKey(p.sku);
-      const a = comparePrice(pendingPriceMap[kk], dbPriceMap[kk]) === 'diff';
-      const b = comparePrice(pendingPriceMap[kk], promaxPriceMap[kk]) === 'diff';
+      const gp = grabPriceFor(p.sku, br);
+      const a = comparePrice(gp, dbPriceMap[kk]) === 'diff';
+      const b = comparePrice(gp, promaxPriceMap[kk]) === 'diff';
       if (a) diffDb++;
       if (b) diffPm++;
       if (a || b) diffAny++;
@@ -1874,7 +1896,7 @@ function renderPendingList() {
       : '';
     const rows = items.map(p => {
       const k     = normalizeKey(p.sku);
-      const price = pendingPriceMap[k];
+      const price = grabPriceFor(p.sku, br);   // ราคาของสาขาตามแท็บที่เปิดอยู่
       const dbP   = dbPriceMap[k];
       const pmP   = promaxPriceMap[k];
       const cmp   = comparePrice(price, dbP);
