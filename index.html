@@ -536,8 +536,6 @@
     <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="SRC" checked style="vertical-align:middle;margin-right:4px">SRC</label>
     <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="SSS" checked style="vertical-align:middle;margin-right:4px">SSS</label>
     <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="KKL" checked style="vertical-align:middle;margin-right:4px">KKL</label>
-    <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="WRD" checked style="vertical-align:middle;margin-right:4px">WRD</label>
-    <label style="font-family:var(--font-th);font-size:12px;cursor:pointer"><input type="checkbox" class="pend-branch-cb" value="ONN" checked style="vertical-align:middle;margin-right:4px">ONN</label>
   </div>
   <div class="btn-row" style="margin-bottom:14px;gap:8px">
     <textarea id="pending-sku-input" placeholder="กรอก SKU... (paste หลายรายการได้ แต่ละ SKU ขึ้นบรรทัดใหม่ หรือคั่นด้วย ,)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.addPendingSku()}" style="font-family:var(--font-th);font-size:13px;padding:8px 10px;border:2px solid var(--input-border);background:var(--input-bg);color:var(--text);flex:1;min-width:0;resize:vertical;height:60px;line-height:1.8"></textarea>
@@ -547,7 +545,7 @@
     <button class="btn btn-info" onclick="window.refreshAllPrices()">฿ REFRESH PRICE</button>
     <span id="db2-status-chip" class="badge badge-info" style="font-size:6px">DB: —</span>
     <span style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.7">
-      ราคา = ไฟล์ .CSV ของ GRAB (คอลัมน์ C · จับคู่ SKU คอลัมน์ I) · DATABASE = ตาราง products (โปรเจคที่ 2)
+      GRAB = ไฟล์ .CSV ของ GRAB (คอลัมน์ C · จับคู่ SKU คอลัมน์ I) · DATABASE = ตาราง products (โปรเจคที่ 2)
     </span>
   </div>
   <div class="btn-row" style="margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap">
@@ -557,7 +555,7 @@
     <input type="file" id="promax-file-input" accept=".csv" style="display:none"
            onchange="window.loadPromaxFile(this.files)">
     <span style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.7">
-      PROMAX = ไฟล์ .CSV ที่อัปโหลด · เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU คอลัมน์ B · ราคาคอลัมน์ F
+      PROMAX = ไฟล์ .CSV ที่อัปโหลด · เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU คอลัมน์ B · ราคาคอลัมน์ G
     </span>
   </div>
   <div id="pending-list" style="min-height:32px"></div>
@@ -854,14 +852,21 @@ let dbPriceMap       = {};
 // ── โครงคอลัมน์ของไฟล์ PROMAX (อัปโหลดแยก · header 1 แถว) ──
 const PROMAX_SKU_IDX    = 1;   // column B = SKU
 const PROMAX_FILTER_IDX = 4;   // column E = ตัวกรอง (เอาเฉพาะค่า 5)
-const PROMAX_PRICE_IDX  = 5;   // column F = ราคา
+const PROMAX_PRICE_IDX  = 6;   // column G = ราคา
 const PROMAX_FILTER_VAL = '5';
 
 // ราคาจากไฟล์ PROMAX — key = SKU (normalized)
 let promaxPriceMap   = {};
 let promaxFileName   = '';
 
-const PENDING_BRANCH_CODES = ['SRC', 'SSS', 'KKL', 'WRD', 'ONN'];
+// สาขาที่แสดง/เลือกได้ในการ์ด PENDING SKU UPDATE
+const PENDING_BRANCH_CODES = ['SRC', 'SSS', 'KKL'];
+
+// สาขาที่เคยใช้และอาจยังมีอยู่ในข้อมูลเดิมบน Supabase
+// ต้องคงไว้เพื่อให้ isPendingActiveForBranch รู้จัก — ไม่งั้นถ้ายังรันไฟล์ wrd.csv/onn.csv
+// อยู่ ระบบจะถือว่าเป็นสาขานอกลิสต์แล้วตัดสต็อก SKU ที่ pending ทุกตัวที่สาขานั้น
+const PENDING_BRANCH_LEGACY = ['WRD', 'ONN'];
+const PENDING_BRANCH_ALL    = PENDING_BRANCH_CODES.concat(PENDING_BRANCH_LEGACY);
 
 function entryBranches(p) {
   const raw = p && p.branches;
@@ -870,7 +875,8 @@ function entryBranches(p) {
   const seen = new Set();
   for (const b of raw) {
     const u = String(b || '').toUpperCase();
-    if (!PENDING_BRANCH_CODES.includes(u) || seen.has(u)) continue;
+    // เก็บสาขาเดิม (WRD/ONN) ไว้ด้วย เพื่อไม่ให้ข้อมูลที่บันทึกไว้แล้วเปลี่ยนความหมาย
+    if (!PENDING_BRANCH_ALL.includes(u) || seen.has(u)) continue;
     seen.add(u); out.push(u);
   }
   return out.length ? out : PENDING_BRANCH_CODES.slice();
@@ -878,7 +884,8 @@ function entryBranches(p) {
 
 function isPendingActiveForBranch(p, base) {
   const bUpper = String(base || '').toUpperCase();
-  if (!PENDING_BRANCH_CODES.includes(bUpper)) return true;
+  // ใช้ลิสต์เต็ม (รวมสาขาเดิม) — สาขาที่รู้จักต้องเช็คจาก branches ของ entry เสมอ
+  if (!PENDING_BRANCH_ALL.includes(bUpper)) return true;
   return entryBranches(p).includes(bUpper);
 }
 
@@ -1513,7 +1520,7 @@ function collectPricesFromRows(rows, map) {
 }
 
 // ── PROMAX: อ่านราคาจากไฟล์ที่อัปโหลด (header 1 แถว) ──
-// เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU จากคอลัมน์ B · ราคาจากคอลัมน์ F
+// เอาเฉพาะแถวที่คอลัมน์ E = 5 · SKU จากคอลัมน์ B · ราคาจากคอลัมน์ G
 function collectPromaxFromRows(rows) {
   const map = {};
   let matched = 0, skipped = 0, noPrice = 0;
@@ -1664,8 +1671,9 @@ async function loadPendingSkus() {
   try {
     const raw = await window._sbLoadPendingSkus();
     pendingSkus = (raw || []).map(p => {
+      // เก็บสาขาเดิม (WRD/ONN) ที่บันทึกไว้แล้วด้วย — ไม่งั้นจะถูกลบถาวรตอน save ครั้งถัดไป
       let brs = Array.isArray(p.branches) && p.branches.length
-        ? [...new Set(p.branches.map(b => String(b || '').toUpperCase()).filter(b => PENDING_BRANCH_CODES.includes(b)))]
+        ? [...new Set(p.branches.map(b => String(b || '').toUpperCase()).filter(b => PENDING_BRANCH_ALL.includes(b)))]
         : [];
       if (!brs.length) brs = PENDING_BRANCH_CODES.slice();
       return { sku: String(p.sku || '').toUpperCase(), name: p.name || '', branches: brs };
@@ -1713,7 +1721,7 @@ async function addPendingSku() {
     const existing = pendingSkus.find(p => p.sku === sku);
     if (existing) {
       const combined = new Set([...entryBranches(existing), ...selectedBranches]);
-      existing.branches = PENDING_BRANCH_CODES.filter(b => combined.has(b));
+      existing.branches = PENDING_BRANCH_ALL.filter(b => combined.has(b));
       merged++;
       continue;
     }
@@ -1929,7 +1937,7 @@ function renderPendingList() {
           <tr style="background:#f5f5f5;border-bottom:2px solid #ddd">
             <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">SKU</th>
             <th style="padding:6px 10px;text-align:left;font-family:var(--font);font-size:7px;letter-spacing:1px">ITEM NAME</th>
-            <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">ราคา</th>
+            <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">GRAB</th>
             <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">DATABASE</th>
             <th style="padding:6px 10px;text-align:right;font-family:var(--font);font-size:7px;letter-spacing:1px;white-space:nowrap">PROMAX</th>
             <th style="padding:6px 10px;font-family:var(--font);font-size:7px"></th>
