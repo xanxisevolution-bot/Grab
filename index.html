@@ -1388,7 +1388,7 @@ async function runAll() {
 
     const srcRows  = parseCSV(srcText);
     const grabRows = parseCSV(grabText);
-    log('ok', '  LOADED · ' + base + ': ' + (srcRows.length-1) + ' สินค้า  |  GRAB: ' + (grabRows.length-3) + ' สินค้า');
+    log('ok', '  LOADED · ' + base + ': ' + (srcRows.length-1) + ' สินค้า  |  GRAB: ' + (grabRows.length - grabDataStart(grabRows)) + ' สินค้า');
 
     const srcMap = {};
     srcRows.forEach((row, idx) => {
@@ -1403,8 +1403,9 @@ async function runAll() {
     let updated = 0, zeroed = 0, pendingHit = 0;
     const pendingForBranch = pendingSkus.filter(p => isPendingActiveForBranch(p, base));
     const pendingSet = new Set(pendingForBranch.map(p => normalizeKey(p.sku)));
+    const dataStart = grabDataStart(grabRows);
     const newGrabRows = grabRows.map((row, idx) => {
-      if (idx < 3) return row;
+      if (idx < dataStart) return row;
       const key = normalizeKey(row[GRAB_SKU_IDX]);
       const r   = [...row];
       if (pendingSet.has(key)) {
@@ -1506,6 +1507,23 @@ function comparePrice(a, b) {
   return Math.round(x * 100) === Math.round(y * 100) ? 'same' : 'diff';
 }
 
+// หาแถวแรกที่เป็นข้อมูลจริงในไฟล์ GRAB
+// ไฟล์จาก Grab มีแถวหัวตารางไม่เท่ากัน (บางไฟล์ 2 แถว บางไฟล์ 3 แถว)
+// จึงตรวจจากเนื้อหา: แถวข้อมูลจริงต้องมี SKU และราคาเป็นตัวเลข
+function grabDataStart(rows) {
+  const MAX_HEADER = 5;
+  for (let i = 0; i < Math.min(rows.length, MAX_HEADER); i++) {
+    const r = rows[i];
+    if (!r) continue;
+    const sku = normalizeKey(r[GRAB_SKU_IDX]);
+    if (!sku) continue;
+    // ราคาต้องแปลงเป็นตัวเลขได้ — กันแถวหัวตารางที่ใส่คำอธิบายไว้
+    if (priceToNumber(r[GRAB_PRICE_IDX]) === null) continue;
+    return i;
+  }
+  return 3;   // ไม่เจอ → ใช้ค่าเดิม
+}
+
 // GRAB_KKL.CSV → KKL (ตัดคำนำหน้า GRAB_ และนามสกุลออก)
 function grabFileBranch(fileName) {
   return String(fileName || '').toUpperCase()
@@ -1521,10 +1539,10 @@ function grabPriceFor(sku, branch) {
   return m[normalizeKey(sku)];
 }
 
-// อ่านราคาจาก rows ของไฟล์ GRAB แล้วเก็บลง map (ข้าม 3 บรรทัดแรกเหมือน logic เดิม)
+// อ่านราคาจาก rows ของไฟล์ GRAB แล้วเก็บลง map (ข้ามแถวหัวตารางตามที่ตรวจเจอ)
 function collectPricesFromRows(rows, map) {
   let found = 0;
-  for (const row of rows.slice(3)) {
+  for (const row of rows.slice(grabDataStart(rows))) {
     const key = normalizeKey(row[GRAB_SKU_IDX]);
     if (!key) continue;
     const price = formatPrice(row[GRAB_PRICE_IDX]);
@@ -1768,7 +1786,7 @@ async function addPendingSku() {
         const br = grabFileBranch(f.name);
         collectPricesFromRows(rows, pendingPriceBySrc[br] || (pendingPriceBySrc[br] = {}));
         if (!remaining.size) continue;
-        for (const row of rows.slice(3)) {
+        for (const row of rows.slice(grabDataStart(rows))) {
           const key = normalizeKey(row[GRAB_SKU_IDX]);
           if (!remaining.has(key)) continue;
           const entry = newEntries.find(e => e.sku === key);
