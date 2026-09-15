@@ -399,8 +399,10 @@
       </div>
       <div style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.8">
         ใช้ดึงราคาอ้างอิงจากตาราง <strong>products</strong> มาเทียบกับราคาของ GRAB<br>
-        เว้นว่างได้ — ระบบหลักทำงานปกติ
+        เว้นว่างได้ — ระบบหลักทำงานปกติ<br>
+        <strong>กรอกครั้งเดียวพอ</strong> — ระบบบันทึกถาวรไว้ในโปรเจคหลัก ครั้งหน้าดึงมาให้เอง
       </div>
+      <div id="cfg-db2-hint" style="font-family:var(--font-th);font-size:11px;color:var(--ok, #3c9);line-height:1.8;margin-top:4px"></div>
     </div>
     <div style="text-align:left;margin-bottom:10px">
       <label style="font-family:var(--font-th);font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px">DATABASE PROJECT URL</label>
@@ -620,6 +622,9 @@ function _hashDecode(str) {
   catch(e) { return null; }
 }
 
+// key ใน app_settings ของโปรเจคหลัก ที่ใช้เก็บ config ของ DATABASE (โปรเจคที่ 2)
+const DB2_CFG_KEY = 'db2_config';
+
 function _sbSaveHash(cfg) {
   // เขียน hash ใหม่โดยไม่ reload หน้า
   const encoded = _hashEncode(cfg);
@@ -693,6 +698,29 @@ async function _sbInitSupabase() {
       try { return JSON.parse(res.data.value) || []; } catch(e) { return []; }
     };
 
+    // ── config ของ DATABASE (โปรเจคที่ 2) เก็บถาวรในโปรเจคหลัก ──
+    // กรอกครั้งเดียว เครื่องอื่นที่มี URL หลักเดียวกันใช้ได้เลย ไม่ต้องพก bookmark
+    window._sbSaveDb2Config = async function(db2Url, db2Key) {
+      const res = await sb.from('app_settings')
+        .upsert({ key: DB2_CFG_KEY, value: JSON.stringify({ db2Url, db2Key }) }, { onConflict: 'key' });
+      if (res.error) throw new Error(res.error.message);
+    };
+
+    window._sbLoadDb2Config = async function() {
+      const res = await sb.from('app_settings').select('value').eq('key', DB2_CFG_KEY).single();
+      if (res.error) return null;
+      try {
+        const o = JSON.parse(res.data.value);
+        if (o && o.db2Url && o.db2Key) return { db2Url: o.db2Url, db2Key: o.db2Key };
+      } catch(e) { /* ค่าเสีย → ถือว่าไม่มี */ }
+      return null;
+    };
+
+    window._sbClearDb2Config = async function() {
+      const res = await sb.from('app_settings').delete().eq('key', DB2_CFG_KEY);
+      if (res.error) throw new Error(res.error.message);
+    };
+
     if (window._onSbReady) window._onSbReady(true);
 
   } catch(e) {
@@ -700,6 +728,8 @@ async function _sbInitSupabase() {
     window._sbSaveCSV = null; window._sbGetCSVText = null;
     window._sbListCSVFiles = null; window._sbSavePendingSkus = null;
     window._sbLoadPendingSkus = null;
+    window._sbSaveDb2Config = null; window._sbLoadDb2Config = null;
+    window._sbClearDb2Config = null;
     if (window._onSbReady) window._onSbReady(false, e.message);
   }
 }
@@ -713,6 +743,8 @@ window._sbInit = _sbInitSupabase;
 window._db2Ready = false;
 window._db2Err   = '';
 window._db2Cols  = null;   // { sku: '<ชื่อคอลัมน์จริง>', price: '<ชื่อคอลัมน์จริง>' }
+window._db2Src   = '';     // 'hash' | 'cloud' | '' — config ที่ใช้อยู่มาจากไหน (ไว้แสดงใน chip)
+window._db2Url   = '';     // URL ที่ init สำเร็จจริง — chip ต้องอ่านจากตัวนี้ ไม่ใช่จาก hash
 
 const DB2_TABLE = 'products';
 // ชื่อคอลัมน์จริงมีอักขระประกอบ เช่น "*ราคาสินค้า" และ "รหัสสินค้า (SKU NUMBER)"
@@ -739,8 +771,25 @@ async function _db2Init() {
   window._db2Client = null;
   window._db2FetchPrices = null;
 
+  window._db2Src = '';
+  window._db2Url = '';
+
+  // ลำดับการอ่าน config: URL hash ก่อน (ให้ override ชั่วคราวได้)
+  // → ถ้าไม่มี ค่อยดึงจาก app_settings ของโปรเจคหลัก (ที่กรอกไว้ครั้งเดียว)
   const cfg = _sbGetConfig();
-  const url = cfg.db2Url || '', key = cfg.db2Key || '';
+  let url = cfg.db2Url || '', key = cfg.db2Key || '', src = 'hash';
+
+  if (!url || !key) {
+    src = 'cloud';
+    url = ''; key = '';
+    if (window._sbReady && window._sbLoadDb2Config) {
+      try {
+        const remote = await window._sbLoadDb2Config();
+        if (remote) { url = remote.db2Url; key = remote.db2Key; }
+      } catch(e) { /* ดึงไม่ได้ → ถือว่ายังไม่ได้ตั้งค่า ระบบหลักต้องไม่สะดุด */ }
+    }
+  }
+
   if (!url || !key) {
     window._db2Err = 'ยังไม่ได้ตั้งค่า DATABASE (โปรเจคที่ 2)';
     if (window._onDb2Ready) window._onDb2Ready(false, '');
@@ -780,6 +829,8 @@ async function _db2Init() {
     window._db2Client = db2;
     window._db2Cols   = { sku: skuCol, price: priceCol };
     window._db2Ready  = true;
+    window._db2Src    = src;
+    window._db2Url    = url;
 
     // ดึงราคาทั้งตาราง — คืน map { SKU_NORMALIZED: <ราคาดิบ> }
     // หมายเหตุ: คอลัมน์ชื่อภาษาไทยของตารางนี้ใช้ใน select/filter ของ PostgREST ไม่ได้ (HTTP 500)
@@ -815,6 +866,8 @@ async function _db2Init() {
     window._db2Client = null;
     window._db2FetchPrices = null;
     window._db2Cols = null;
+    window._db2Src   = src;   // เก็บไว้ให้ chip บอกได้ว่า config ที่ใช้มาจากไหน
+    window._db2Url   = url;
     if (window._onDb2Ready) window._onDb2Ready(false, window._db2Err);
   }
 }
@@ -982,19 +1035,23 @@ async function setDbStatus(ok, msg) {
 function setDb2Status(ok, msg) {
   const chip = document.getElementById('db2-status-chip');
   if (!chip) return;
+  // อ่านจาก URL ที่ init ใช้จริง — config อาจมาจาก app_settings ไม่ใช่ hash
   const cfg = _sbGetConfig();
-  if (!cfg.db2Url) {
+  const usedUrl = window._db2Url || cfg.db2Url || '';
+  if (!usedUrl) {
     chip.className   = 'badge badge-info';
     chip.textContent = 'DB: OFF';
     chip.title       = 'ยังไม่ได้ตั้งค่า DATABASE (โปรเจคที่ 2) — กด ⚙ CONFIG';
     return;
   }
-  const projId = cfg.db2Url.replace('https://','').split('.')[0];
+  const projId = usedUrl.replace('https://','').split('.')[0];
+  const from   = window._db2Src === 'cloud' ? ' · จาก app_settings'
+               : window._db2Src === 'hash'  ? ' · จาก URL hash' : '';
   chip.className   = ok ? 'badge badge-ok' : 'badge badge-err';
   chip.textContent = ok ? 'DB: ' + projId : 'DB: ERR';
-  chip.title       = ok
+  chip.title       = (ok
     ? ('คอลัมน์: ' + (window._db2Cols ? window._db2Cols.sku + ' / ' + window._db2Cols.price : ''))
-    : (msg || window._db2Err || '');
+    : (msg || window._db2Err || '')) + from;
 }
 
 // ════════════════════════════════════
@@ -1009,6 +1066,21 @@ async function openConfig() {
   document.getElementById('cfg-db2-url').value = cfg.db2Url || '';
   document.getElementById('cfg-db2-key').value = cfg.db2Key || '';
   document.getElementById('cfg-err').textContent = '';
+
+  const hintDb2 = document.getElementById('cfg-db2-hint');
+  if (hintDb2) hintDb2.textContent = '';
+
+  // ถ้า hash ไม่มี db2 แต่โปรเจคหลักเก็บไว้ให้ → เติมลงช่องให้เห็นว่ามีค่าอะไรใช้อยู่
+  if (!cfg.db2Url && !cfg.db2Key && window._sbReady && window._sbLoadDb2Config) {
+    try {
+      const remote = await window._sbLoadDb2Config();
+      if (remote) {
+        document.getElementById('cfg-db2-url').value = remote.db2Url;
+        document.getElementById('cfg-db2-key').value = remote.db2Key;
+        if (hintDb2) hintDb2.textContent = '✓ ค่านี้บันทึกถาวรไว้ในโปรเจคหลักแล้ว — ไม่ต้องกรอกใหม่ทุกครั้ง';
+      }
+    } catch(e) { /* ดึงไม่ได้ก็ปล่อยช่องว่าง */ }
+  }
 
   // แสดง notice และปุ่ม CLEAR ถ้ามี config บันทึกไว้
   const notice = document.getElementById('cfg-saved-notice');
@@ -1035,6 +1107,7 @@ async function saveConfig() {
 
   // บันทึกลง URL hash — ไม่ส่งไป server, ไม่อยู่ในโค้ด
   // ต้องส่ง db2 ไปด้วยทุกครั้ง ไม่งั้นจะถูกทิ้งเมื่อกด SAVE
+  // (db2 จะถูกลบออกจาก hash อีกทีหลังบันทึกขึ้น app_settings สำเร็จ)
   _sbSaveHash({ url, key, db2Url, db2Key });
 
   closeModal('modal-config');
@@ -1042,6 +1115,26 @@ async function saveConfig() {
   log('info', '[CFG] ★ Bookmark URL นี้เพื่อใช้งานครั้งหน้าโดยไม่ต้องกรอกใหม่');
   setDbStatus(false, 'reconnecting...');
   await window._sbInit();
+
+  // ── บันทึก db2 ถาวรในโปรเจคหลัก ──
+  // สำเร็จแล้วค่อยเอาออกจาก hash เพื่อให้ครั้งหน้าดึงจาก app_settings เป็นหลัก
+  // (ถ้าบันทึกไม่สำเร็จ ค่าใน hash ยังอยู่ → ยังใช้งานได้เหมือนเดิม ไม่หาย)
+  if (window._sbReady && window._sbSaveDb2Config) {
+    try {
+      if (db2Url && db2Key) {
+        await window._sbSaveDb2Config(db2Url, db2Key);
+        _sbSaveHash({ url, key, db2Url: '', db2Key: '' });
+        log('ok', '[CFG] DATABASE config บันทึกถาวรแล้ว — ครั้งหน้าไม่ต้องกรอกซ้ำ');
+      } else if (window._sbClearDb2Config) {
+        // ผู้ใช้ล้างช่อง db2 เอง = ตั้งใจเลิกใช้ → ลบของถาวรด้วย
+        await window._sbClearDb2Config();
+        log('warn', '[CFG] ลบ DATABASE config ที่บันทึกถาวรไว้แล้ว');
+      }
+    } catch(e) {
+      log('warn', '[CFG] บันทึก DATABASE config ถาวรไม่สำเร็จ — ' + e.message + ' (ยังใช้ได้จาก URL hash)');
+    }
+  }
+
   await window._db2Init();
 }
 
@@ -1060,11 +1153,15 @@ async function clearConfig() {
   // เคลียร์ state ของ DATABASE (โปรเจคที่ 2) ด้วย
   window._db2Ready = false; window._db2Client = null;
   window._db2FetchPrices = null; window._db2Cols = null;
+  window._db2Src = ''; window._db2Url = '';
   dbPriceMap = {};
   setDbStatus(false, 'Config cleared — กด ⚙ CONFIG เพื่อตั้งค่าใหม่');
   setDb2Status(false, 'cleared');
   renderPendingList();
   log('warn', '[CFG] Config cleared · URL hash removed');
+  // ไม่ลบ db2_config ใน app_settings — เป็นข้อมูลที่แชร์กับเครื่องอื่น
+  // และตอนนี้ตัดการเชื่อมต่อโปรเจคหลักไปแล้ว ลบไม่ได้อยู่ดี
+  log('info', '[CFG] DATABASE config ที่บันทึกไว้ในโปรเจคหลักยังอยู่ — ต่อโปรเจคหลักใหม่แล้วจะดึงกลับมาเอง');
 }
 
 // ════════════════════════════════════
