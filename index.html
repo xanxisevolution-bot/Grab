@@ -547,7 +547,18 @@
     <button class="btn btn-info" onclick="window.refreshAllPrices()">฿ REFRESH PRICE</button>
     <span id="db2-status-chip" class="badge badge-info" style="font-size:6px">DB: —</span>
     <span style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.7">
-      GRAB = ไฟล์ .CSV ของ GRAB (คอลัมน์ C · จับคู่ SKU คอลัมน์ I) · DATABASE = ตาราง products (โปรเจคที่ 2)
+      DATABASE = ตาราง products (โปรเจคที่ 2) · ปุ่มนี้รีเฟรชเฉพาะ DATABASE
+    </span>
+  </div>
+  <div class="btn-row" style="margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-info" onclick="window.triggerPendingGrabLoad()">📤 UPLOAD GRAB CSV</button>
+    <button class="btn btn-dim" onclick="window.clearPendingGrab()">✕ CLEAR</button>
+    <span id="pending-grab-status" class="badge badge-info" style="font-size:6px">NO FILE</span>
+    <input type="file" id="pending-grab-file-input" accept=".csv" multiple style="display:none"
+           onchange="window.loadPendingGrabFiles(this.files)">
+    <span style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);line-height:1.7">
+      GRAB = ไฟล์ GRAB_XXX.CSV ที่อัปโหลดตรงนี้ · SKU คอลัมน์ I · ราคาคอลัมน์ C · เลือกหลายสาขาพร้อมกันได้<br>
+      <strong>คนละชุดกับ GRAB CSV MANAGER</strong> — เก็บในหน่วยความจำ หายเมื่อ refresh หน้า
     </span>
   </div>
   <div class="btn-row" style="margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap">
@@ -898,7 +909,11 @@ const GRAB_SKU_IDX   = 8;  // column I = SKU
 
 // ราคาที่ดึงจากไฟล์ .CSV ของ GRAB — แยกตามสาขา { SAKHA: { SKU: ราคา } }
 // ต้องแยกสาขา เพราะ SKU เดียวกันอาจตั้งราคาต่างกันในแต่ละสาขา
+// มาจากไฟล์ที่อัปโหลดในการ์ด PENDING เท่านั้น (คนละชุดกับ GRAB CSV MANAGER)
 let pendingPriceBySrc = {};
+
+// ชื่อไฟล์ที่อัปโหลดไว้เป็นแหล่งราคา GRAB — { SAKHA: 'GRAB_SRC.CSV' } ไว้โชว์สถานะ
+let pendingGrabFileNames = {};
 
 // ราคาจาก DATABASE (Supabase โปรเจคที่ 2 · ตาราง products) — key = SKU (normalized)
 let dbPriceMap       = {};
@@ -1669,6 +1684,21 @@ function collectPromaxFromRows(rows) {
   return { map, matched, skipped, noPrice };
 }
 
+// อ่านไฟล์ CSV เป็นข้อความ — ไฟล์จากระบบหลังบ้านบางตัวเป็น TIS-620/Windows-874
+async function readCsvFileText(file, tag) {
+  const buf = await file.arrayBuffer();
+  try {
+    const text = new TextDecoder('utf-8').decode(buf);
+    if (/\uFFFD/.test(text)) {
+      log('warn', (tag || '[CSV]') + ' ตรวจพบ TIS-620/Windows-874 encoding');
+      return new TextDecoder('windows-874').decode(buf);
+    }
+    return text;
+  } catch(e) {
+    return new TextDecoder('windows-874').decode(buf);
+  }
+}
+
 function triggerPromaxLoad() {
   document.getElementById('promax-file-input').click();
 }
@@ -1680,17 +1710,7 @@ async function loadPromaxFile(files) {
   const badge = document.getElementById('promax-status');
   if (badge) { badge.className = 'badge badge-warn'; badge.textContent = 'LOADING...'; }
   try {
-    let text;
-    const buf = await file.arrayBuffer();
-    try {
-      text = new TextDecoder('utf-8').decode(buf);
-      if (/\uFFFD/.test(text)) {
-        text = new TextDecoder('windows-874').decode(buf);
-        log('warn', '[PROMAX] ตรวจพบ TIS-620/Windows-874 encoding');
-      }
-    } catch(e) {
-      text = new TextDecoder('windows-874').decode(buf);
-    }
+    const text = await readCsvFileText(file, '[PROMAX]');
     const rows = parseCSV(text);
     if (rows.length < 2) throw new Error('ไฟล์ว่างหรือ parse ไม่ได้');
 
@@ -1724,31 +1744,86 @@ function clearPromax() {
   log('warn', '[PROMAX] CLEARED');
 }
 
-async function refreshPendingPrices(opts) {
-  const silent = !!(opts && opts.silent === true);
-  if (!window._sbGetCSVText || !grabFilesList.length) {
-    if (!silent) log('warn', '[PRICE] ยังไม่มีไฟล์ GRAB บน Supabase — ไม่สามารถดึงราคาได้');
+// ── ราคาคอลัมน์ GRAB: อ่านจากไฟล์ที่อัปโหลดในการ์ดนี้เท่านั้น ──
+// ไม่ใช้ไฟล์จาก GRAB CSV MANAGER / Supabase — เป็นคนละชุดกัน
+// โครงคอลัมน์เหมือนกัน (SKU = I, ราคา = C) จึงใช้ collectPricesFromRows ตัวเดิมได้
+// เก็บในหน่วยความจำ หายเมื่อ refresh เหมือน R01.102 และ R05.103
+function triggerPendingGrabLoad() {
+  document.getElementById('pending-grab-file-input').click();
+}
+
+async function loadPendingGrabFiles(files) {
+  const input = document.getElementById('pending-grab-file-input');
+  if (!files || !files.length) return;
+  const badge = document.getElementById('pending-grab-status');
+  if (badge) { badge.className = 'badge badge-warn'; badge.textContent = 'LOADING...'; }
+
+  let filesOk = 0, failed = 0;
+  for (const file of files) {
+    const upName = file.name.toUpperCase();
+    try {
+      const text = await readCsvFileText(file, '[GRAB]');
+      const rows = parseCSV(text);
+      if (rows.length < 2) throw new Error('ไฟล์ว่างหรือ parse ไม่ได้');
+
+      // GRAB_KKL.CSV → KKL · เก็บแยกสาขา ไม่ให้ไฟล์ที่อ่านทีหลังเขียนทับสาขาอื่น
+      // บังคับให้ขึ้นต้นด้วย GRAB_ ไม่งั้นไฟล์ที่ตั้งชื่อผิดจะกลายเป็นสาขาปลอมเงียบ ๆ
+      if (!/^GRAB_/.test(upName)) {
+        throw new Error('ชื่อไฟล์ต้องขึ้นต้นด้วย GRAB_ เช่น GRAB_SRC.CSV');
+      }
+      const br = grabFileBranch(file.name);
+      if (!br) throw new Error('อ่านชื่อสาขาจากชื่อไฟล์ไม่ได้ — ต้องตั้งชื่อเป็น GRAB_XXX.CSV');
+
+      // สร้าง map ใหม่ก่อน แล้วค่อยเขียนทับของเดิมเมื่อผ่านการตรวจแล้ว
+      // ไฟล์เสียต้องไม่ล้างราคาสาขาที่โหลดไว้ดีอยู่แล้ว
+      const map = {};
+      collectPricesFromRows(rows, map);
+      const n = Object.keys(map).length;
+      if (!n) throw new Error('ไม่พบราคาในคอลัมน์ C (อ่านได้ ' + rows.length + ' แถว) — ตรวจสอบว่าเป็นไฟล์ GRAB ถูกต้องหรือไม่');
+
+      // อัปโหลดสาขาเดิมซ้ำ = แทนที่ของเดิม ไม่ใช่รวมกัน
+      pendingPriceBySrc[br] = map;
+      pendingGrabFileNames[br] = upName;
+      filesOk++;
+      log('ok', '[GRAB] ✔ ' + upName + ' → สาขา ' + br + ' · ' + n + ' ราคา');
+    } catch(e) {
+      failed++;
+      log('err', '[GRAB] ✕ ' + upName + ' · ' + e.message);
+    }
+  }
+
+  renderPendingList();
+  updatePendingGrabStatus();
+
+  if (filesOk) {
+    const hit = pendingSkus.filter(p => grabPriceFor(p.sku, pendingListActiveTab) !== undefined).length;
+    log('info', '[GRAB] จับคู่ในแท็บ ' + pendingListActiveTab + ' ' + hit + '/' + pendingSkus.length + ' รายการ');
+  }
+  if (failed && !filesOk && badge) { badge.className = 'badge badge-err'; badge.textContent = 'ERROR'; }
+  if (input) input.value = '';
+}
+
+function clearPendingGrab() {
+  pendingPriceBySrc = {};
+  pendingGrabFileNames = {};
+  renderPendingList();
+  updatePendingGrabStatus();
+  log('warn', '[GRAB] CLEARED · ราคาคอลัมน์ GRAB ถูกล้างแล้ว');
+}
+
+function updatePendingGrabStatus() {
+  const badge = document.getElementById('pending-grab-status');
+  if (!badge) return;
+  const brs = Object.keys(pendingGrabFileNames);
+  if (!brs.length) {
+    badge.className = 'badge badge-info';
+    badge.textContent = 'NO FILE';
+    badge.title = 'ยังไม่ได้อัปโหลดไฟล์ GRAB สำหรับเทียบราคา';
     return;
   }
-  const bySrc = {};
-  let filesOk = 0, total = 0;
-  for (const f of grabFilesList) {
-    try {
-      const rows = parseCSV(await window._sbGetCSVText(f.name));
-      // GRAB_KKL.CSV → KKL · เก็บแยกสาขา ไม่ให้ไฟล์ที่อ่านทีหลังเขียนทับ
-      const br = grabFileBranch(f.name);
-      const map = bySrc[br] || (bySrc[br] = {});
-      collectPricesFromRows(rows, map);
-      total += Object.keys(map).length;
-      filesOk++;
-    } catch(e) { /* skip ไฟล์ที่อ่านไม่ได้ */ }
-  }
-  pendingPriceBySrc = bySrc;
-  renderPendingList();
-  if (!silent) {
-    const hit = pendingSkus.filter(p => grabPriceFor(p.sku, pendingListActiveTab) !== undefined).length;
-    log('ok', '[PRICE] อ่าน ' + filesOk + ' ไฟล์ · พบราคารวม ' + total + ' รายการ · จับคู่ในแท็บ ' + pendingListActiveTab + ' ' + hit + '/' + pendingSkus.length);
-  }
+  badge.className = 'badge badge-ok';
+  badge.textContent = brs.sort().join(' · ');
+  badge.title = brs.sort().map(b => b + ' ← ' + pendingGrabFileNames[b]).join('\n');
 }
 
 // ── ราคาจาก DATABASE (โปรเจคที่ 2 · ตาราง products) ──
@@ -1795,9 +1870,9 @@ async function refreshDbPrices(opts) {
   }
 }
 
-// รันตามลำดับ ไม่ใช่ Promise.all — การนับ mismatch ต้องใช้ราคา GRAB ที่อัปเดตแล้ว
+// ราคา GRAB มาจากไฟล์ที่อัปโหลดในการ์ดนี้ (อยู่ในหน่วยความจำแล้ว) ดึงใหม่ไม่ได้
+// ปุ่มนี้จึงรีเฟรชเฉพาะฝั่ง DATABASE
 async function refreshAllPrices() {
-  await refreshPendingPrices();
   await refreshDbPrices();
 }
 
@@ -1816,7 +1891,7 @@ async function loadPendingSkus() {
     renderPendingList();
     log('ok', '[PENDING] LOADED · ' + pendingSkus.length + ' SKUs');
     if (pendingSkus.length) {
-      refreshPendingPrices({ silent: true });
+      // ราคา GRAB ต้องอัปโหลดไฟล์เอง — อยู่ในหน่วยความจำ โหลดอัตโนมัติไม่ได้
       refreshDbPrices({ silent: true });
     }
   } catch(e) {
@@ -2020,9 +2095,15 @@ function renderPendingList() {
       const isDiffPm = cmpPm === 'diff';
       const rowDiff  = isDiff || isDiffPm;
 
-      const priceCell = price !== undefined && price !== ''
-        ? `<span style="color:var(--text)">${esc(price)}</span>`
-        : '<span style="color:var(--text-dim)">—</span>';
+      // GRAB: · = ยังไม่ได้อัปโหลดไฟล์ของสาขานี้ / — = อัปโหลดแล้วแต่ไม่พบ SKU นี้
+      let priceCell;
+      if (price !== undefined && price !== '') {
+        priceCell = `<span style="color:var(--text)">${esc(price)}</span>`;
+      } else if (!pendingGrabFileNames[br]) {
+        priceCell = '<span style="color:var(--text-dim)" title="ยังไม่ได้อัปโหลดไฟล์ GRAB ของสาขา ' + esc(br) + '">·</span>';
+      } else {
+        priceCell = '<span style="color:var(--text-dim)">—</span>';
+      }
 
       // PROMAX: · = ยังไม่ได้อัปโหลดไฟล์ / — = อัปโหลดแล้วแต่ไม่พบ SKU นี้
       let pmCell;
@@ -2107,7 +2188,8 @@ Object.assign(window, {
   toggleGrabManager,
   triggerUpload, uploadCSVFiles,
   addPendingSku, removePendingSku, setPendingListTab,
-  refreshPendingPrices, refreshDbPrices, refreshAllPrices,
+  refreshDbPrices, refreshAllPrices,
+  triggerPendingGrabLoad, loadPendingGrabFiles, clearPendingGrab,
   triggerPromaxLoad, loadPromaxFile, clearPromax,
   runAll, validateAll, downloadAll, clearLog
 });
@@ -2117,6 +2199,7 @@ initPendingListDelegate();
 updateLockUI();
 renderPendingList();
 setDb2Status(false, '');
+updatePendingGrabStatus();
 </script>
 </body>
 </html>
