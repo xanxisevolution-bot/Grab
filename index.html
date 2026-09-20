@@ -585,12 +585,10 @@
   </div>
   <div class="pixel-divider"></div>
   <div class="section-title" style="font-size:8px;margin-bottom:10px">SUBTRACT PER BRANCH (Default)</div>
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
     <div class="form-group"><label>SRC</label><input type="number" id="sub-src" value="5" min="0"></div>
     <div class="form-group"><label>SSS</label><input type="number" id="sub-sss" value="2" min="0"></div>
     <div class="form-group"><label>KKL</label><input type="number" id="sub-kkl" value="2" min="0"></div>
-    <div class="form-group"><label>WRD</label><input type="number" id="sub-wrd" value="2" min="0"></div>
-    <div class="form-group"><label>ONN</label><input type="number" id="sub-onn" value="2" min="0"></div>
   </div>
   <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
   <div style="font-family:var(--font-th);font-size:11px;color:var(--text-dim);margin-bottom:10px">
@@ -1504,8 +1502,6 @@ async function runAll() {
     'SRC': parseFloat(document.getElementById('sub-src').value) || 0,
     'SSS': parseFloat(document.getElementById('sub-sss').value) || 0,
     'KKL': parseFloat(document.getElementById('sub-kkl').value) || 0,
-    'WRD': parseFloat(document.getElementById('sub-wrd').value) || 0,
-    'ONN': parseFloat(document.getElementById('sub-onn').value) || 0,
   };
   const _d = new Date();
   const dateSuffix = _d.getDate() + '-' + (_d.getMonth()+1) + '-' + _d.getFullYear();
