@@ -903,9 +903,19 @@ let pendingSkus      = [];
 let pendingListActiveTab = 'SRC';
 
 // ── โครงคอลัมน์ของไฟล์ GRAB_XXX.CSV (ข้อมูลเริ่มแถวที่ 4 / index 3) ──
-const GRAB_NAME_IDX  = 1;  // column B = ชื่อสินค้า
-const GRAB_PRICE_IDX = 2;  // column C = ราคา
-const GRAB_SKU_IDX   = 3;  // column D = SKU (ITEMCODE)
+const GRAB_NAME_IDX         = 1;  // column B = ชื่อสินค้า
+const GRAB_PRICE_IDX        = 2;  // column C = ราคา
+const GRAB_SKU_IDX          = 3;  // column D = SKU (ITEMCODE)
+const GRAB_CURRENTSTOCK_IDX = 4;  // column E = CurrentStock
+const GRAB_MAXSTOCK_IDX     = 5;  // column F = MaxStock
+
+// ชื่อคอลัมน์ที่คาดไว้ตามตำแหน่ง — ใช้ตรวจว่าโครงไฟล์ GRAB ยังตรงกับที่โค้ดสมมติไว้หรือไม่
+// (ครั้งก่อน GRAB_SKU_IDX ผิดตำแหน่งไปเงียบ ๆ จนคอลัมน์ E/F ว่างทั้งไฟล์ นี่คือตัวกันไม่ให้เกิดซ้ำ)
+const GRAB_EXPECTED_HEADERS = {
+  [GRAB_SKU_IDX]:          'ITEMCODE',
+  [GRAB_CURRENTSTOCK_IDX]: 'CURRENTSTOCK',
+  [GRAB_MAXSTOCK_IDX]:     'MAXSTOCK',
+};
 
 // ราคาที่ดึงจากไฟล์ .CSV ของ GRAB — แยกตามสาขา { SAKHA: { SKU: ราคา } }
 // ต้องแยกสาขา เพราะ SKU เดียวกันอาจตั้งราคาต่างกันในแต่ละสาขา
@@ -1483,6 +1493,7 @@ async function runAll() {
   const bar = document.getElementById('progress-bar');
   const pt  = document.getElementById('progress-text');
   let done = 0, tot = 0, skip = 0;
+  const runProblems = [];   // ปัญหาโครงสร้างไฟล์ GRAB ที่พบระหว่าง RUN (รวมทุกสาขา)
 
   for (let s = 0; s < srcKeys.length; s++) {
     const srcKey  = srcKeys[s];
@@ -1512,28 +1523,30 @@ async function runAll() {
       srcMap[key] = val > 0 ? String(Math.floor(val)) : '';
     });
 
-    let updated = 0, zeroed = 0, pendingHit = 0;
+    let updated = 0, zeroed = 0, pendingHit = 0, unmatched = 0;
     const pendingForBranch = pendingSkus.filter(p => isPendingActiveForBranch(p, base));
     const pendingSet = new Set(pendingForBranch.map(p => normalizeKey(p.sku)));
     const dataStart = grabDataStart(grabRows);
+    runProblems.push(...checkGrabHeaderLayout(grabRows, dataStart, base));
     const newGrabRows = grabRows.map((row, idx) => {
       if (idx < dataStart) return row;
       const key = normalizeKey(row[GRAB_SKU_IDX]);
       const r   = [...row];
       if (pendingSet.has(key)) {
-        r[4] = ''; r[5] = ''; r[15] = 'out-of-stock indefinitely';
+        r[GRAB_CURRENTSTOCK_IDX] = ''; r[GRAB_MAXSTOCK_IDX] = ''; r[15] = 'out-of-stock indefinitely';
         const entry = pendingForBranch.find(p => normalizeKey(p.sku) === key);
         if (entry && !entry.name && row[GRAB_NAME_IDX]) entry.name = row[GRAB_NAME_IDX].trim();
         pendingHit++; return r;
       }
       if (Object.prototype.hasOwnProperty.call(srcMap, key)) {
         const v = srcMap[key];
-        r[4] = v; r[5] = v;
+        r[GRAB_CURRENTSTOCK_IDX] = v; r[GRAB_MAXSTOCK_IDX] = v;
         r[15] = v !== '' ? 'in stock' : 'out-of-stock indefinitely';
         updated++; if (v === '') zeroed++;
         return r;
       }
-      r[4] = ''; r[5] = ''; r[15] = 'out-of-stock indefinitely';
+      r[GRAB_CURRENTSTOCK_IDX] = ''; r[GRAB_MAXSTOCK_IDX] = ''; r[15] = 'out-of-stock indefinitely';
+      unmatched++;
       return r;
     });
 
@@ -1544,6 +1557,11 @@ async function runAll() {
     log('ok', '  UPDATED ' + updated + ' ROWS');
     if (zeroed) log('warn', '  ' + zeroed + ' ROWS → EMPTY (≤ 0)');
     tot += updated;
+
+    const totalDataRows = newGrabRows.length - dataStart;
+    if (totalDataRows > 0 && unmatched === totalDataRows) {
+      runProblems.push(base + ': ' + unmatched + '/' + totalDataRows + ' แถวไม่ match SKU เลย — คอลัมน์ CurrentStock/MaxStock จะว่างทั้งไฟล์');
+    }
 
     const outputName = grabKey.replace(/\.CSV$/i, '_' + dateSuffix + '.csv');
     processedOutputs[outputName] = csvToText(newGrabRows);
@@ -1558,6 +1576,13 @@ async function runAll() {
   if (done > 0) {
     document.getElementById('btn-download-all').classList.remove('hidden');
     log('info', '⬇ กด DOWNLOAD ALL เพื่อดาวน์โหลดไฟล์ทั้งหมด (' + done + ' FILES)');
+  }
+
+  if (runProblems.length) {
+    log('dim','═'.repeat(40));
+    runProblems.forEach(p => log('warn', '⚠ ' + p));
+    flashLogStatus('ISSUES','warn');
+    window.alert('พบปัญหาโครงสร้างไฟล์ GRAB ' + runProblems.length + ' รายการ — ตรวจ log ก่อนดาวน์โหลด:\n\n' + runProblems.join('\n'));
   }
 }
 
@@ -1634,6 +1659,26 @@ function grabDataStart(rows) {
     return i;
   }
   return 3;   // ไม่เจอ → ใช้ค่าเดิม
+}
+
+// ตรวจว่าแถวหัวคอลัมน์ (แถวก่อน dataStart) มีชื่อคอลัมน์ตรงตามตำแหน่งที่โค้ดคาดไว้หรือไม่
+// คืนค่า array ของปัญหาที่พบ ([] ถ้าไม่มีปัญหา) — ไม่ throw เพื่อให้ RUN ทำต่อได้ แค่เตือนดัง ๆ
+function checkGrabHeaderLayout(grabRows, dataStart, branchLabel) {
+  const headerRow = grabRows[dataStart - 1];
+  const problems = [];
+  if (!headerRow) {
+    problems.push(branchLabel + ': หาแถวชื่อคอลัมน์ไม่เจอ (ไฟล์อาจสั้นผิดปกติ)');
+    return problems;
+  }
+  for (const idxStr of Object.keys(GRAB_EXPECTED_HEADERS)) {
+    const idx      = Number(idxStr);
+    const expected = GRAB_EXPECTED_HEADERS[idx];
+    const actual   = normalizeKey(headerRow[idx]);
+    if (actual !== expected) {
+      problems.push(branchLabel + ': คอลัมน์ ' + idx + ' คาดว่าเป็น "' + expected + '" แต่เจอ "' + (headerRow[idx] || '(ว่าง)') + '"');
+    }
+  }
+  return problems;
 }
 
 // GRAB_KKL.CSV → KKL (ตัดคำนำหน้า GRAB_ และนามสกุลออก)
