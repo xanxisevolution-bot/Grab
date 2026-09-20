@@ -1350,18 +1350,24 @@ async function uploadCSVFiles(files) {
   const badge = document.getElementById('upload-status');
   badge.className = 'badge badge-warn'; badge.textContent = 'UPLOADING...';
   let ok = 0, fail = 0;
-  const uploadProblems = [];   // ปัญหาโครงสร้างคอลัมน์ที่พบระหว่างอัปโหลด (รวมทุกไฟล์)
+  const blockedProblems = [];   // ปัญหาโครงสร้างคอลัมน์ของไฟล์ที่ถูกบล็อกไม่ให้อัปโหลด (รวมทุกไฟล์)
   for (const file of files) {
     try {
       log('info', '[DB] UPLOADING: ' + file.name.toUpperCase());
       const text = await file.text();
 
-      // ตรวจโครงคอลัมน์ก่อนบันทึก — กันไฟล์ที่โครงสร้างเปลี่ยนไปเงียบ ๆ ไม่ให้หลุดเข้าระบบ
-      // แล้วไปทำให้ RUN ของทุกสาขาที่ใช้ไฟล์นี้พังตามในภายหลัง
+      // ตรวจโครงคอลัมน์ก่อนบันทึก — บล็อกไฟล์ที่โครงสร้างไม่ตรง ไม่ให้หลุดเข้าระบบ
+      // (ถ้าปล่อยผ่าน RUN ของทุกสาขาที่ใช้ไฟล์นี้จะพังตามในภายหลัง)
       const rows       = parseCSV(text);
       const dataStart  = grabDataStart(rows);
       const branchName = grabFileBranch(file.name) || file.name.toUpperCase();
-      uploadProblems.push(...checkGrabHeaderLayout(rows, dataStart, branchName));
+      const problems   = checkGrabHeaderLayout(rows, dataStart, branchName);
+      if (problems.length) {
+        problems.forEach(p => log('err', '[DB] ✕ BLOCKED · ' + p));
+        blockedProblems.push(...problems);
+        fail++;
+        continue;
+      }
 
       const name = await window._sbSaveCSV(file.name, text);
       log('ok', '[DB] ✔ ' + name + ' (' + (file.size / 1024).toFixed(1) + ' KB)');
@@ -1380,10 +1386,8 @@ async function uploadCSVFiles(files) {
   log(fail ? 'warn' : 'ok', '[DB] DONE · OK:' + ok + (fail ? ' FAIL:' + fail : '') + ' · ' + ts);
   if (ok) refreshGrabList();
 
-  if (uploadProblems.length) {
-    uploadProblems.forEach(p => log('warn', '⚠ [DB] ' + p));
-    badge.className = 'badge badge-err';
-    window.alert('ไฟล์ CSV ที่อัปโหลดคอลัมน์ไม่ตรงกับที่ระบบคาดไว้ ' + uploadProblems.length + ' รายการ — ตรวจ log ก่อนใช้งาน:\n\n' + uploadProblems.join('\n'));
+  if (blockedProblems.length) {
+    window.alert('บล็อกไฟล์ CSV ที่คอลัมน์ไม่ตรงกับที่ระบบคาดไว้ ' + blockedProblems.length + ' รายการ — ไม่ถูกอัปโหลด แก้ไฟล์แล้วลองใหม่:\n\n' + blockedProblems.join('\n'));
   }
 }
 
