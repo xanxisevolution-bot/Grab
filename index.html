@@ -915,6 +915,15 @@ const GRAB_EXPECTED_HEADERS = {
   [GRAB_MAXSTOCK_IDX]:     'MAXSTOCK',
 };
 
+const GRAB_STOREID_IDX = 0;  // column A = StoreID
+
+// StoreID ที่คาดไว้ต่อสาขา — สาขาที่ไม่อยู่ใน map นี้จะไม่ถูกตรวจ (เช่นสาขาที่เลิกใช้แล้ว)
+const GRAB_STOREID_BY_BRANCH = {
+  KKL: '3-C7AAJUMCGAE3RE',
+  SSS: '3-C7MKLKLYL8LYAJ',
+  SRC: '3-C3JVCCKYNU23TA',
+};
+
 // ราคาที่ดึงจากไฟล์ .CSV ของ GRAB — แยกตามสาขา { SAKHA: { SKU: ราคา } }
 // ต้องแยกสาขา เพราะ SKU เดียวกันอาจตั้งราคาต่างกันในแต่ละสาขา
 // มาจากไฟล์ที่อัปโหลดในการ์ด PENDING เท่านั้น (คนละชุดกับ GRAB CSV MANAGER)
@@ -1354,12 +1363,13 @@ async function uploadCSVFiles(files) {
       log('info', '[DB] UPLOADING: ' + file.name.toUpperCase());
       const text = await file.text();
 
-      // ตรวจโครงคอลัมน์ก่อนบันทึก — บล็อกไฟล์ที่โครงสร้างไม่ตรง ไม่ให้หลุดเข้าระบบ
+      // ตรวจโครงคอลัมน์ + StoreID ก่อนบันทึก — บล็อกไฟล์ที่โครงสร้างไม่ตรงหรือเป็นของสาขาอื่น ไม่ให้หลุดเข้าระบบ
       // (ถ้าปล่อยผ่าน RUN ของทุกสาขาที่ใช้ไฟล์นี้จะพังตามในภายหลัง)
       const rows       = parseCSV(text);
       const dataStart  = grabDataStart(rows);
       const branchName = grabFileBranch(file.name) || file.name.toUpperCase();
-      const problems   = checkGrabHeaderLayout(rows, dataStart, branchName);
+      const problems   = checkGrabHeaderLayout(rows, dataStart, branchName)
+                          .concat(checkGrabStoreId(rows, dataStart, branchName));
       if (problems.length) {
         problems.forEach(p => log('err', '[DB] ✕ BLOCKED · ' + p));
         blockedProblems.push(...problems);
@@ -1385,7 +1395,7 @@ async function uploadCSVFiles(files) {
   if (ok) refreshGrabList();
 
   if (blockedProblems.length) {
-    window.alert('บล็อกไฟล์ CSV ที่คอลัมน์ไม่ตรงกับที่ระบบคาดไว้ ' + blockedProblems.length + ' รายการ — ไม่ถูกอัปโหลด แก้ไฟล์แล้วลองใหม่:\n\n' + blockedProblems.join('\n'));
+    window.alert('บล็อกไฟล์ CSV ที่มีปัญหา ' + blockedProblems.length + ' รายการ — ไม่ถูกอัปโหลด แก้ไฟล์แล้วลองใหม่:\n\n' + blockedProblems.join('\n'));
   }
 }
 
@@ -1543,6 +1553,7 @@ async function runAll() {
     const pendingSet = new Set(pendingForBranch.map(p => normalizeKey(p.sku)));
     const dataStart = grabDataStart(grabRows);
     runProblems.push(...checkGrabHeaderLayout(grabRows, dataStart, base));
+    runProblems.push(...checkGrabStoreId(grabRows, dataStart, base));
     const newGrabRows = grabRows.map((row, idx) => {
       if (idx < dataStart) return row;
       const key = normalizeKey(row[GRAB_SKU_IDX]);
@@ -1694,6 +1705,23 @@ function checkGrabHeaderLayout(grabRows, dataStart, branchLabel) {
     }
   }
   return problems;
+}
+
+// ตรวจว่า StoreID ในไฟล์ตรงกับสาขาที่กำลังอัปโหลด/ประมวลผลหรือไม่
+// สาขาที่ไม่มีใน GRAB_STOREID_BY_BRANCH จะไม่ถูกตรวจ (ข้ามเงียบ ๆ ไม่ใช่ error)
+function checkGrabStoreId(grabRows, dataStart, branchLabel) {
+  const expected = GRAB_STOREID_BY_BRANCH[branchLabel];
+  if (!expected) return [];
+  const problems = new Set();
+  for (let i = dataStart; i < grabRows.length; i++) {
+    const row = grabRows[i];
+    if (!row) continue;
+    const actual = normalizeKey(row[GRAB_STOREID_IDX]);
+    if (actual && actual !== normalizeKey(expected)) {
+      problems.add(branchLabel + ': StoreID ในไฟล์ไม่ตรงสาขา — คาดว่าเป็น "' + expected + '" แต่เจอ "' + row[GRAB_STOREID_IDX] + '" (ไฟล์นี้อาจเป็นของสาขาอื่น)');
+    }
+  }
+  return [...problems];
 }
 
 // GRAB_KKL.CSV → KKL (ตัดคำนำหน้า GRAB_ และนามสกุลออก)
